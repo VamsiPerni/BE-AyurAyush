@@ -31,34 +31,103 @@ const sendOtpEmail = async (toEmail, otp) => {
         toEmail,
         "OTP Verification for AyurAyush HealthCare App",
         `
-            <html>
-            <head>
-                <style>
-                    div{
-                        display: flex;
-                        flex-direction: column;
-                        gap: 1.5rem;
-                        align-items: center;
-                        justify-content: center;
-                        padding: 5rem;
-                    }
-                    h2{
-                        color: darkblue;
-                    }
-                    h1{
-                        color: chocolate;
-                    }
-                </style>
-            </head>
-            <body>
-                <div>
-                    <h2>Your OTP for verifying the email is: </h2>
-                    <h1>${otp}</h1>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+        body {
+            background-color: #f3f4f6;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .container {
+            max-width: 28rem;
+            width: 100%;
+            margin: 0 auto;
+        }
+        .card {
+            background-color: #ffffff;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background-color: #059669;
+            color: white;
+            text-align: center;
+            padding: 1.5rem;
+        }
+        .header h1 {
+            font-size: 1.875rem;
+            font-weight: 700;
+        }
+        .content {
+            padding: 2rem;
+            text-align: center;
+        }
+        .content p {
+            color: #4b5563;
+            margin-bottom: 1rem;
+        }
+        .otp-box {
+            background-color: #ecfdf5;
+            border: 2px solid #059669;
+            border-radius: 0.5rem;
+            padding: 1.5rem 1rem;
+        }
+        .otp-box span {
+            font-size: 3rem;
+            font-weight: 700;
+            color: #047857;
+            letter-spacing: 0.05em;
+        }
+        .footer {
+            background-color: #f9fafb;
+            padding: 1rem 1.5rem;
+            text-align: center;
+            border-top: 1px solid #e5e7eb;
+            font-size: 0.875rem;
+            color: #4b5563;
+        }
+        .footer p {
+            margin: 0.25rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <h1>AyurAyush</h1>
+            </div>
+            
+            <div class="content">
+                <p>Your OTP for verification</p>
+                <div class="otp-box">
+                    <span>${otp}</span>
                 </div>
-            </body>
-            </html>
-        
-        `,
+            </div>
+            
+            <div class="footer">
+                <p>AyurAyush, LPU</p>
+                <p>Contact: XXX-XXX-XXXX</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+`,
     );
 };
 
