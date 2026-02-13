@@ -20,7 +20,7 @@ const app = express();
 app.use(
     cors({
         origin: [
-            process.env.FRONTEND_URL,
+            process.env.FRONTEND_URL_LOCAL,
             process.env.FRONTEND_URL_VERCEL,
             process.env.FRONTEND_URL_CUSTOM_DOMAIN,
         ],

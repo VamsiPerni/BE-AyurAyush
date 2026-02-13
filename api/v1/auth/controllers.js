@@ -104,7 +104,7 @@ const userLoginController = async (req, res) => {
 
         res.cookie("authorization", token, {
             httpOnly: true,
-            sameSite: "None", // prod: STRICT
+            sameSite: "none", // prod: STRICT
             secure: true, // do you want to send it only on HTTPS connection?
             maxAge: 1 * 24 * 60 * 60 * 1000, // seconds
         });
@@ -152,8 +152,51 @@ const userLogoutController = async (req, res) => {
     }
 };
 
+const getCurrentUserController = (req, res) => {
+    try {
+        const user = req.currentUser;
+
+        res.status(200).json({
+            isSuccess: true,
+            data: {
+                userId: user.userId,
+                roles: user.roles,
+            },
+        });
+    } catch (err) {
+        res.status(500).json({
+            isSuccess: false,
+            message: "Internal Server Error",
+        });
+    }
+};
+
+const checkEmailExistsController = async (req, res) => {
+    try {
+        const { email } = req.query;
+
+        const user = await UserModel.findOne({ email });
+
+        if (user) {
+            return res.status(200).json({
+                exists: true,
+            });
+        }
+
+        res.status(200).json({
+            exists: false,
+        });
+    } catch (err) {
+        res.status(500).json({
+            message: "Internal Server Error",
+        });
+    }
+};
+
 module.exports = {
     userSignupController,
     userLoginController,
     userLogoutController,
+    getCurrentUserController,
+    checkEmailExistsController,
 };
