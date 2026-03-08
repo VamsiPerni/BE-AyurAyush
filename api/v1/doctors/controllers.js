@@ -76,8 +76,7 @@ const getDoctorAppointmentsController = async (req, res) => {
       };
     }
 
-    const appointments = await appointmentModel
-      .find(query)
+    const appointments = await AppointmentModel.find(query)
       .populate("patientId", "name email phone gender dob profilePhoto")
       .sort({ date: 1, timeSlot: 1 });
 
@@ -154,15 +153,14 @@ const getTodayAppointmentsController = async (req, res) => {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    const appointments = await appointmentModel
-      .find({
-        doctorId: userId,
-        status: "confirmed",
-        date: {
-          $gte: todayStart,
-          $lte: todayEnd,
-        },
-      })
+    const appointments = await AppointmentModel.find({
+      doctorId: userId,
+      status: "confirmed",
+      date: {
+        $gte: todayStart,
+        $lte: todayEnd,
+      },
+    })
       .populate("patientId", "name email phone gender dob profilePhoto")
       .sort({ timeSlot: 1 });
 
@@ -220,12 +218,10 @@ const getAppointmentDetailController = async (req, res) => {
     const { userId } = req.currentDoctor;
     const { appointmentId } = req.params;
 
-    const appointment = await appointmentModel
-      .findOne({
-        _id: appointmentId,
-        doctorId: userId,
-      })
-      .populate("patientId", "name email phone gender dob profilePhoto");
+    const appointment = await AppointmentModel.findOne({
+      _id: appointmentId,
+      doctorId: userId,
+    }).populate("patientId", "name email phone gender dob profilePhoto");
 
     if (!appointment) {
       return res.status(404).json({
@@ -296,7 +292,7 @@ const completeAppointmentController = async (req, res) => {
     const { appointmentId } = req.params;
     const { doctorNotes, prescription } = req.body;
 
-    const appointment = await appointmentModel.findOne({
+    const appointment = await AppointmentModel.findOne({
       _id: appointmentId,
       doctorId: userId,
     });

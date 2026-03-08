@@ -4,6 +4,9 @@ const {
   DoctorApplicationsModel,
 } = require("../../../models/doctorApplicationSchema");
 const { DoctorModel } = require("../../../models/doctorSchema");
+const {
+  DoctorAvailabiltyModel,
+} = require("../../../models/doctorAvailabilitySchema");
 const { UserModel, ROLE_OPTIONS } = require("../../../models/userSchema");
 
 const adminDashboardController = async (req, res) => {
@@ -129,7 +132,7 @@ const rejectDoctorApplicationController = async (req, res) => {
 
     const { applicationId } = req.params;
 
-    const application = await DoctorApplicationModel.findById(applicationId);
+    const application = await DoctorApplicationsModel.findById(applicationId);
 
     if (!application) {
       return res.status(404).json({
@@ -304,7 +307,7 @@ const approveAppointmentController = async (req, res) => {
     const { userId } = req.currentAdmin;
     const { edits, adminNotes } = req.body;
 
-    const appointment = await appointmentModel.findById(appointmentId);
+    const appointment = await AppointmentModel.findById(appointmentId);
 
     if (!appointment) {
       return res.status(404).json({
@@ -339,7 +342,7 @@ const approveAppointmentController = async (req, res) => {
         const checkDate = edits.date || appointment.date;
         const checkTimeSlot = edits.timeSlot || appointment.timeSlot;
 
-        const isAvailable = await appointmentModel.isSlotAvailable(
+        const isAvailable = await AppointmentModel.isSlotAvailable(
           checkDoctorId,
           checkDate,
           checkTimeSlot,
@@ -361,8 +364,7 @@ const approveAppointmentController = async (req, res) => {
 
     await appointment.approveByAdmin(userId, edits);
 
-    const updatedAppointment = await appointmentModel
-      .findById(appointmentId)
+    const updatedAppointment = await AppointmentModel.findById(appointmentId)
       .populate("patientId", "name email")
       .populate("doctorId", "name");
 
@@ -406,7 +408,7 @@ const rejectAppointmentController = async (req, res) => {
       });
     }
 
-    const appointment = await appointmentModel.findById(appointmentId);
+    const appointment = await AppointmentModel.findById(appointmentId);
 
     if (!appointment) {
       return res.status(404).json({
@@ -464,7 +466,7 @@ const setDoctorAvailabilityController = async (req, res) => {
       });
     }
 
-    let availability = await doctorAvailabiltyModel.findOne({ doctorId });
+    let availability = await DoctorAvailabiltyModel.findOne({ doctorId });
 
     if (availability) {
       availability.availableDays = availableDays || availability.availableDays;
@@ -474,7 +476,7 @@ const setDoctorAvailabilityController = async (req, res) => {
       availability.lastUpdatedBy = userId;
       await availability.save();
     } else {
-      availability = await doctorAvailabiltyModel.create({
+      availability = await DoctorAvailabiltyModel.create({
         doctorId,
         availableDays,
         timeSlots,

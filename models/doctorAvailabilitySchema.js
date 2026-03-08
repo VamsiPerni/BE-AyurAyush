@@ -35,7 +35,7 @@ const doctorAvailabiltySchema = new Schema(
           type: String,
         },
       ],
-      WeakSetednesday: [
+      Wednesday: [
         {
           type: String,
         },
@@ -109,7 +109,7 @@ doctorAvailabiltySchema.methods.getAvailableSlotsForDate = function (date) {
 doctorAvailabiltySchema.statics.getBookableSlots = async function (
   doctorId,
   date,
-  appointmentModel,
+  AppointmentModel,
 ) {
   const availability = await this.findOne({ doctorId });
   if (!availability) {
@@ -121,16 +121,14 @@ doctorAvailabiltySchema.statics.getBookableSlots = async function (
     return [];
   }
 
-  const bookedAppointments = await appointmentModel
-    .find({
-      doctorId,
-      date: {
-        $gte: new Date(date).setHours(0, 0, 0, 0),
-        $lte: new Date(date).setHours(23, 59, 59, 999),
-      },
-      status: { $nin: ["cancelled", "rejected"] },
-    })
-    .select("timeSlot");
+  const bookedAppointments = await AppointmentModel.find({
+    doctorId,
+    date: {
+      $gte: new Date(date).setHours(0, 0, 0, 0),
+      $lte: new Date(date).setHours(23, 59, 59, 999),
+    },
+    status: { $nin: ["cancelled", "rejected"] },
+  }).select("timeSlot");
 
   const bookedSlots = bookedAppointments.map((apt) => apt.timeSlot);
 

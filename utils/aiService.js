@@ -1,6 +1,8 @@
-const axios = require("axios");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-//emeregncy keywords configrations
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// Emergency keywords configuration
 const EMERGENCY_KEYWORDS = [
   "chest pain",
   "heart attack",
@@ -98,4 +100,79 @@ Rules:
 - detailedSummary: clear, concise summary in simple language
 
 Return ONLY the JSON object, nothing else.`,
+};
+
+// Check if user message contains emergency keywords
+const checkForEmergency = (message) => {
+  const lowerMessage = message.toLowerCase();
+  return EMERGENCY_KEYWORDS.some((keyword) => lowerMessage.includes(keyword));
+};
+
+// Get AI chat response from Gemini
+const getAIChatResponse = async (messages, isEmergency = false) => {
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+  const systemPrompt = isEmergency
+    ? SYSTEM_PROMPTS.emergency
+    : SYSTEM_PROMPTS.normal;
+
+  // Build chat history for Gemini format
+  const history = messages.slice(0, -1).map((msg) => ({
+    role: msg.role === "assistant" ? "model" : "user",
+    parts: [{ text: msg.content }],
+  }));
+
+  const chat = model.startChat({
+    history,
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+  });
+
+  const lastMessage = messages[messages.length - 1];
+  const result = await chat.sendMessage(lastMessage.content);
+  const response = result.response.text();
+
+  return response;
+};
+
+// Generate conversation summary using Gemini
+const generateConversationSummary = async (messages) => {
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+  const conversationText = messages
+    .map((msg) => `${msg.role === "user" ? "Patient" : "Assistant"}: ${msg.content}`)
+    .join("\n");
+
+  const result = await model.generateContent({
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text: `${SYSTEM_PROMPTS.summary}\n\nConversation:\n${conversationText}`,
+          },
+        ],
+      },
+    ],
+  });
+
+  const responseText = result.response.text().trim();
+
+  // Extract JSON from the response (handle markdown code blocks)
+  let jsonString = responseText;
+  const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) {
+    jsonString = jsonMatch[1].trim();
+  }
+
+  const summary = JSON.parse(jsonString);
+
+  return summary;
+};
+
+module.exports = {
+  EMERGENCY_KEYWORDS,
+  SYSTEM_PROMPTS,
+  checkForEmergency,
+  getAIChatResponse,
+  generateConversationSummary,
 };
