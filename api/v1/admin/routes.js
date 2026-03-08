@@ -13,6 +13,7 @@ const {
   approveAppointmentController,
   rejectAppointmentController,
   setDoctorAvailabilityController,
+  offlineBookAppointmentController,
 } = require("./controllers");
 
 const adminsRouter = express.Router();
@@ -83,6 +84,14 @@ adminsRouter.put(
   validateLoggedInUserMiddleware,
   validateIsAdminMiddleware,
   setDoctorAvailabilityController,
+);
+
+// Offline booking (walk-in patient)
+adminsRouter.post(
+  "/appointments/offline-book",
+  validateLoggedInUserMiddleware,
+  validateIsAdminMiddleware,
+  offlineBookAppointmentController,
 );
 
 module.exports = {

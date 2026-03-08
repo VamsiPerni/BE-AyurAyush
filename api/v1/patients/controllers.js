@@ -482,6 +482,69 @@ ${summary.detailedSummary || "No additional details available"}
     `.trim();
 };
 
+// Get list of verified doctors (optionally filter by specialization)
+const getVerifiedDoctorsController = async (req, res) => {
+  try {
+    console.log("-----🟢 inside getVerifiedDoctorsController-------");
+
+    const { specialization } = req.query;
+
+    const doctorQuery = { isVerified: true };
+    if (specialization) {
+      doctorQuery.specialization = {
+        $regex: new RegExp(`^${specialization}$`, "i"),
+      };
+    }
+
+    const doctors = await DoctorModel.find(doctorQuery);
+
+    const doctorUserIds = doctors.map((d) => d.userId);
+
+    const users = await UserModel.find({
+      _id: { $in: doctorUserIds },
+      isActive: true,
+    }).select("name email phone gender profilePhoto");
+
+    const doctorsList = doctors
+      .map((doc) => {
+        const user = users.find(
+          (u) => u._id.toString() === doc.userId.toString(),
+        );
+        if (!user) return null;
+        return {
+          doctorId: doc.userId,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          gender: user.gender,
+          profilePhoto: user.profilePhoto,
+          specialization: doc.specialization,
+          qualification: doc.qualification,
+          experience: doc.experience,
+          consultationFee: doc.consultationFee,
+        };
+      })
+      .filter(Boolean);
+
+    res.status(200).json({
+      isSuccess: true,
+      message: "Verified doctors retrieved",
+      data: {
+        count: doctorsList.length,
+        doctors: doctorsList,
+      },
+    });
+  } catch (err) {
+    console.error("-----🔴 Error in getVerifiedDoctorsController--------");
+    console.error(err);
+
+    res.status(500).json({
+      isSuccess: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
 module.exports = {
   patientDashboardController,
   applyForDoctorRoleController,
@@ -490,4 +553,5 @@ module.exports = {
   getPatientAppointmentsController,
   getAppointmentDetailsController,
   cancelAppointmentController,
+  getVerifiedDoctorsController,
 };

@@ -9,6 +9,8 @@ const {
 } = require("../../../models/doctorAvailabilitySchema");
 const { UserModel, ROLE_OPTIONS } = require("../../../models/userSchema");
 
+const { PatientModel } = require("../../../models/patientSchema");
+
 const adminDashboardController = async (req, res) => {
   try {
     console.log("-----🟢 inside adminDashboardController-------");
@@ -536,6 +538,132 @@ const calculateWaitingTime = (createdAt) => {
   }
 };
 
+// Admin creates appointment for walk-in patient (offline booking)
+const offlineBookAppointmentController = async (req, res) => {
+  try {
+    console.log("-----🟢 inside offlineBookAppointmentController-------");
+
+    const { userId: adminId } = req.currentAdmin;
+    const {
+      patientEmail,
+      doctorId,
+      date,
+      timeSlot,
+      symptoms,
+      urgencyLevel,
+      adminNotes,
+    } = req.body;
+
+    if (!patientEmail || !doctorId || !date || !timeSlot) {
+      return res.status(400).json({
+        isSuccess: false,
+        message: "patientEmail, doctorId, date, and timeSlot are required",
+      });
+    }
+
+    // Find the patient by email
+    const patientUser = await UserModel.findOne({ email: patientEmail });
+    if (!patientUser) {
+      return res.status(404).json({
+        isSuccess: false,
+        message: "Patient not found with this email",
+      });
+    }
+
+    // Ensure patient profile exists
+    let patient = await PatientModel.findOne({ userId: patientUser._id });
+    if (!patient) {
+      patient = await PatientModel.create({
+        userId: patientUser._id,
+        bloodGroup: null,
+        medicalHistory: [],
+        allergies: [],
+        emergencyContact: {},
+      });
+    }
+
+    // Verify the doctor
+    const doctor = await DoctorModel.findOne({
+      userId: doctorId,
+      isVerified: true,
+    });
+
+    if (!doctor) {
+      return res.status(404).json({
+        isSuccess: false,
+        message: "Doctor not found or not verified",
+      });
+    }
+
+    // Check slot availability
+    const isAvailable = await AppointmentModel.isSlotAvailable(
+      doctorId,
+      date,
+      timeSlot,
+    );
+
+    if (!isAvailable) {
+      return res.status(409).json({
+        isSuccess: false,
+        message: "This time slot is already booked",
+      });
+    }
+
+    // Create appointment directly as confirmed (admin-created)
+    const appointment = await AppointmentModel.create({
+      patientId: patientUser._id,
+      doctorId: doctorId,
+      date: new Date(date),
+      timeSlot: timeSlot,
+      status: "confirmed",
+      urgencyLevel: urgencyLevel || "normal",
+      symptoms: symptoms || [],
+      aiSummary: symptoms
+        ? `**Walk-in Patient**\n\nSymptoms: ${symptoms.join(", ")}\n\nBooked by admin (offline).`
+        : "Walk-in patient. Booked by admin (offline).",
+      adminApprovedBy: adminId,
+      adminApprovedAt: new Date(),
+      adminNotes: adminNotes || "Offline booking by admin",
+      originalBooking: {
+        doctorId: doctorId,
+        date: new Date(date),
+        timeSlot: timeSlot,
+      },
+    });
+
+    const doctorUser = await UserModel.findById(doctorId).select("name");
+
+    res.status(201).json({
+      isSuccess: true,
+      message: "Offline appointment booked successfully",
+      data: {
+        appointmentId: appointment._id,
+        status: appointment.status,
+        patient: patientUser.name,
+        doctor: doctorUser.name,
+        specialization: doctor.specialization,
+        date: appointment.date,
+        timeSlot: appointment.timeSlot,
+      },
+    });
+  } catch (err) {
+    console.error("-----🔴 Error in offlineBookAppointmentController--------");
+    console.error(err);
+
+    if (err.code === 11000) {
+      return res.status(409).json({
+        isSuccess: false,
+        message: "This appointment slot conflicts with an existing booking",
+      });
+    }
+
+    res.status(500).json({
+      isSuccess: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
 module.exports = {
   adminDashboardController,
   reviewDoctorApplicationsController,
@@ -546,4 +674,5 @@ module.exports = {
   approveAppointmentController,
   rejectAppointmentController,
   setDoctorAvailabilityController,
+  offlineBookAppointmentController,
 };

@@ -11,6 +11,7 @@ const {
   cancelAppointmentController,
   getAppointmentDetailsController,
   getPatientAppointmentsController,
+  getVerifiedDoctorsController,
 } = require("./controllers");
 
 const patientsRouter = express.Router();
@@ -68,6 +69,14 @@ patientsRouter.delete(
   validateLoggedInUserMiddleware,
   validatePatientRole,
   cancelAppointmentController,
+);
+
+// Get list of verified doctors
+patientsRouter.get(
+  "/doctors",
+  validateLoggedInUserMiddleware,
+  validatePatientRole,
+  getVerifiedDoctorsController,
 );
 
 module.exports = { patientsRouter };

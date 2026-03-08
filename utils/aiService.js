@@ -139,7 +139,10 @@ const generateConversationSummary = async (messages) => {
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
   const conversationText = messages
-    .map((msg) => `${msg.role === "user" ? "Patient" : "Assistant"}: ${msg.content}`)
+    .map(
+      (msg) =>
+        `${msg.role === "user" ? "Patient" : "Assistant"}: ${msg.content}`,
+    )
     .join("\n");
 
   const result = await model.generateContent({
