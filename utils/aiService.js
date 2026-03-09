@@ -1,6 +1,6 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_AI_API_KEY);
 
 // Emergency keywords configuration
 const EMERGENCY_KEYWORDS = [
@@ -110,7 +110,7 @@ const checkForEmergency = (message) => {
 
 // Get AI chat response from Gemini
 const getAIChatResponse = async (messages, isEmergency = false) => {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   const systemPrompt = isEmergency
     ? SYSTEM_PROMPTS.emergency
@@ -136,7 +136,7 @@ const getAIChatResponse = async (messages, isEmergency = false) => {
 
 // Generate conversation summary using Gemini
 const generateConversationSummary = async (messages) => {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   const conversationText = messages
     .map(
