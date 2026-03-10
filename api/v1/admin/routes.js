@@ -9,6 +9,7 @@ const {
   approveDoctorApplicationController,
   rejectDoctorApplicationController,
   getpendingDoctorApplicationsController,
+  getPendingNormalAppointmentsController,
   getEmergencyAppointmentsController,
   approveAppointmentController,
   rejectAppointmentController,
