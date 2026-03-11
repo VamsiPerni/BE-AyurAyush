@@ -3,8 +3,6 @@ const PASSWORD_MIN_LENGTH = 8;
 
 const userSignupValidator = (req, res, next) => {
   try {
-    console.log("-----🟢 inside userSignupValidator-------");
-
     const { email, otp, password } = req.body;
 
     if (!email || !otp || !password) {
@@ -30,19 +28,12 @@ const userSignupValidator = (req, res, next) => {
 
     next();
   } catch (err) {
-    console.log("-----🔴 Error in userSignupValidator--------");
-
-    res.status(500).json({
-      isSuccess: false,
-      message: "Internal Server Error",
-    });
+    next(err);
   }
 };
 
 const userLoginValidator = (req, res, next) => {
   try {
-    console.log("-----🟢 inside userLoginValidator-------");
-
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -61,12 +52,7 @@ const userLoginValidator = (req, res, next) => {
 
     next();
   } catch (err) {
-    console.log("-----🔴 Error in userLoginValidator--------");
-
-    res.status(500).json({
-      isSuccess: false,
-      message: "Internal Server Error",
-    });
+    next(err);
   }
 };
 

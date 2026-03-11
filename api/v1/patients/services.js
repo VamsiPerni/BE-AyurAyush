@@ -194,34 +194,39 @@ const getPatientAppointments = async (userId, status) => {
     .populate("doctorId", "name email phone profilePhoto")
     .sort({ date: -1, createdAt: -1 });
 
-  const appointmentsWithDetails = await Promise.all(
-    appointments.map(async (apt) => {
-      const doctor = await DoctorModel.findOne({
-        userId: apt.doctorId._id,
-      }).select("specialization qualification experience consultationFee");
-
-      return {
-        appointmentId: apt._id,
-        status: apt.status,
-        urgencyLevel: apt.urgencyLevel,
-        date: apt.date,
-        timeSlot: apt.timeSlot,
-        symptoms: apt.symptoms,
-        doctor: {
-          userId: apt.doctorId._id,
-          name: apt.doctorId.name,
-          email: apt.doctorId.email,
-          phone: apt.doctorId.phone,
-          profilePhoto: apt.doctorId.profilePhoto,
-          specialization: doctor?.specialization,
-          qualification: doctor?.qualification,
-          consultationFee: doctor?.consultationFee,
-        },
-        createdAt: apt.createdAt,
-        adminNotes: apt.adminNotes,
-      };
-    }),
+  // Batch fetch all doctor profiles in one query instead of N+1
+  const doctorUserIds = appointments.map((apt) => apt.doctorId._id);
+  const doctorProfiles = await DoctorModel.find({
+    userId: { $in: doctorUserIds },
+  }).select("userId specialization qualification experience consultationFee");
+  const doctorMap = new Map(
+    doctorProfiles.map((d) => [d.userId.toString(), d]),
   );
+
+  const appointmentsWithDetails = appointments.map((apt) => {
+    const doctor = doctorMap.get(apt.doctorId._id.toString());
+
+    return {
+      appointmentId: apt._id,
+      status: apt.status,
+      urgencyLevel: apt.urgencyLevel,
+      date: apt.date,
+      timeSlot: apt.timeSlot,
+      symptoms: apt.symptoms,
+      doctor: {
+        userId: apt.doctorId._id,
+        name: apt.doctorId.name,
+        email: apt.doctorId.email,
+        phone: apt.doctorId.phone,
+        profilePhoto: apt.doctorId.profilePhoto,
+        specialization: doctor?.specialization,
+        qualification: doctor?.qualification,
+        consultationFee: doctor?.consultationFee,
+      },
+      createdAt: apt.createdAt,
+      adminNotes: apt.adminNotes,
+    };
+  });
 
   return {
     count: appointmentsWithDetails.length,

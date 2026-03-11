@@ -14,19 +14,13 @@ const sendEmail = async (toEmail, subject, htmlText) => {
     if (error) {
       throw new Error(error.message);
     }
-
-    console.log("🟡 : resp:", data);
-    console.log("----------- ✅ Message sent -----------------", data);
   } catch (err) {
-    console.log("----------- ❌ Error while sending mail ------------");
-    console.log(err.message);
-    console.log("----------- --------------------------- ------------");
+    console.error("Email send failed:", err.message);
     throw new Error("Email not sent");
   }
 };
 
 const sendOtpEmail = async (toEmail, otp) => {
-  console.log("... Sending OTP Email to ", toEmail);
   await sendEmail(
     toEmail,
     "OTP Verification for AyurAyush HealthCare App",

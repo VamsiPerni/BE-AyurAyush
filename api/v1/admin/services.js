@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const { AppointmentModel } = require("../../../models/appointmentSchema");
 const { ChatHistoryModel } = require("../../../models/chatHistorySchema");
 const {
@@ -45,24 +46,39 @@ const approveDoctorApplication = async (applicationId, adminUserId) => {
     throw err;
   }
 
-  application.status = "approved";
-  application.reviewedBy = adminUserId;
-  application.reviewedAt = new Date();
-  await application.save();
+  // Use a transaction to ensure all 3 writes succeed or none do
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      application.status = "approved";
+      application.reviewedBy = adminUserId;
+      application.reviewedAt = new Date();
+      await application.save({ session });
 
-  await UserModel.findByIdAndUpdate(application.userId, {
-    $addToSet: { roles: ROLE_OPTIONS.DOCTOR },
-  });
+      await UserModel.findByIdAndUpdate(
+        application.userId,
+        { $addToSet: { roles: ROLE_OPTIONS.DOCTOR } },
+        { session },
+      );
 
-  await DoctorModel.create({
-    userId: application.userId,
-    specialization: application.specialization,
-    experience: application.experience,
-    qualification: application.qualification,
-    licenseNumber: application.licenseNumber,
-    isVerified: true,
-    verifiedAt: new Date(),
-  });
+      await DoctorModel.create(
+        [
+          {
+            userId: application.userId,
+            specialization: application.specialization,
+            experience: application.experience,
+            qualification: application.qualification,
+            licenseNumber: application.licenseNumber,
+            isVerified: true,
+            verifiedAt: new Date(),
+          },
+        ],
+        { session },
+      );
+    });
+  } finally {
+    await session.endSession();
+  }
 };
 
 const rejectDoctorApplication = async (applicationId, adminUserId) => {
@@ -89,39 +105,44 @@ const getPendingNormalAppointments = async () => {
     .populate("doctorId", "name email phone")
     .sort({ createdAt: 1 });
 
-  return Promise.all(
-    appointments.map(async (apt) => {
-      const doctor = await DoctorModel.findOne({
-        userId: apt.doctorId._id,
-      }).select("specialization qualification experience");
-
-      return {
-        appointmentId: apt._id,
-        patient: {
-          id: apt.patientId._id,
-          name: apt.patientId.name,
-          email: apt.patientId.email,
-          phone: apt.patientId.phone,
-          gender: apt.patientId.gender,
-          age: calculateAge(apt.patientId.dob),
-        },
-        doctor: {
-          id: apt.doctorId._id,
-          name: apt.doctorId.name,
-          specialization: doctor?.specialization,
-        },
-        appointmentDetails: {
-          date: apt.date,
-          timeSlot: apt.timeSlot,
-          symptoms: apt.symptoms,
-          aiSummary: apt.aiSummary,
-          urgencyLevel: apt.urgencyLevel,
-        },
-        createdAt: apt.createdAt,
-        waitingTime: calculateWaitingTime(apt.createdAt),
-      };
-    }),
+  // Batch fetch all doctor profiles in one query
+  const doctorUserIds = appointments.map((apt) => apt.doctorId._id);
+  const doctorProfiles = await DoctorModel.find({
+    userId: { $in: doctorUserIds },
+  }).select("userId specialization qualification experience");
+  const doctorMap = new Map(
+    doctorProfiles.map((d) => [d.userId.toString(), d]),
   );
+
+  return appointments.map((apt) => {
+    const doctor = doctorMap.get(apt.doctorId._id.toString());
+
+    return {
+      appointmentId: apt._id,
+      patient: {
+        id: apt.patientId._id,
+        name: apt.patientId.name,
+        email: apt.patientId.email,
+        phone: apt.patientId.phone,
+        gender: apt.patientId.gender,
+        age: calculateAge(apt.patientId.dob),
+      },
+      doctor: {
+        id: apt.doctorId._id,
+        name: apt.doctorId.name,
+        specialization: doctor?.specialization,
+      },
+      appointmentDetails: {
+        date: apt.date,
+        timeSlot: apt.timeSlot,
+        symptoms: apt.symptoms,
+        aiSummary: apt.aiSummary,
+        urgencyLevel: apt.urgencyLevel,
+      },
+      createdAt: apt.createdAt,
+      waitingTime: calculateWaitingTime(apt.createdAt),
+    };
+  });
 };
 
 const getEmergencyAppointments = async () => {
@@ -133,45 +154,58 @@ const getEmergencyAppointments = async () => {
     .populate("doctorId", "name email phone")
     .sort({ createdAt: 1 });
 
-  return Promise.all(
-    appointments.map(async (apt) => {
-      const doctor = await DoctorModel.findOne({
-        userId: apt.doctorId._id,
-      }).select("specialization qualification experience");
+  // Batch fetch doctor profiles and chat histories in parallel
+  const doctorUserIds = appointments.map((apt) => apt.doctorId._id);
+  const conversationIds = appointments
+    .map((apt) => apt.chatConversationId)
+    .filter(Boolean);
 
-      const chatHistory = await ChatHistoryModel.findOne({
-        conversationId: apt.chatConversationId,
-      }).select("messages");
+  const [doctorProfiles, chatHistories] = await Promise.all([
+    DoctorModel.find({ userId: { $in: doctorUserIds } }).select(
+      "userId specialization qualification experience",
+    ),
+    ChatHistoryModel.find({
+      conversationId: { $in: conversationIds },
+    }).select("conversationId messages"),
+  ]);
 
-      return {
-        appointmentId: apt._id,
-        patient: {
-          id: apt.patientId._id,
-          name: apt.patientId.name,
-          email: apt.patientId.email,
-          phone: apt.patientId.phone,
-          gender: apt.patientId.gender,
-          age: calculateAge(apt.patientId.dob),
-        },
-        doctor: {
-          id: apt.doctorId._id,
-          name: apt.doctorId.name,
-          specialization: doctor?.specialization,
-        },
-        appointmentDetails: {
-          date: apt.date,
-          timeSlot: apt.timeSlot,
-          symptoms: apt.symptoms,
-          aiSummary: apt.aiSummary,
-          urgencyLevel: apt.urgencyLevel,
-          fullChatHistory: chatHistory?.messages,
-        },
-        createdAt: apt.createdAt,
-        waitingTime: calculateWaitingTime(apt.createdAt),
-        priority: "🚨 URGENT - EMERGENCY",
-      };
-    }),
+  const doctorMap = new Map(
+    doctorProfiles.map((d) => [d.userId.toString(), d]),
   );
+  const chatMap = new Map(chatHistories.map((c) => [c.conversationId, c]));
+
+  return appointments.map((apt) => {
+    const doctor = doctorMap.get(apt.doctorId._id.toString());
+    const chatHistory = chatMap.get(apt.chatConversationId);
+
+    return {
+      appointmentId: apt._id,
+      patient: {
+        id: apt.patientId._id,
+        name: apt.patientId.name,
+        email: apt.patientId.email,
+        phone: apt.patientId.phone,
+        gender: apt.patientId.gender,
+        age: calculateAge(apt.patientId.dob),
+      },
+      doctor: {
+        id: apt.doctorId._id,
+        name: apt.doctorId.name,
+        specialization: doctor?.specialization,
+      },
+      appointmentDetails: {
+        date: apt.date,
+        timeSlot: apt.timeSlot,
+        symptoms: apt.symptoms,
+        aiSummary: apt.aiSummary,
+        urgencyLevel: apt.urgencyLevel,
+        fullChatHistory: chatHistory?.messages,
+      },
+      createdAt: apt.createdAt,
+      waitingTime: calculateWaitingTime(apt.createdAt),
+      priority: "URGENT - EMERGENCY",
+    };
+  });
 };
 
 const approveAppointment = async (

@@ -44,38 +44,43 @@ const getDoctorAppointments = async (userId, { status, date }) => {
     .populate("patientId", "name email phone gender dob profilePhoto")
     .sort({ date: 1, timeSlot: 1 });
 
-  const appointmentsWithDetails = await Promise.all(
-    appointments.map(async (apt) => {
-      const patientProfile = await PatientModel.findOne({
-        userId: apt.patientId._id,
-      }).select("bloodGroup allergies medicalHistory");
-
-      return {
-        appointmentId: apt._id,
-        status: apt.status,
-        urgencyLevel: apt.urgencyLevel,
-        patient: {
-          id: apt.patientId._id,
-          name: apt.patientId.name,
-          email: apt.patientId.email,
-          phone: apt.patientId.phone,
-          gender: apt.patientId.gender,
-          age: calculateAge(apt.patientId.dob),
-          profilePhoto: apt.patientId.profilePhoto,
-          bloodGroup: patientProfile?.bloodGroup,
-          allergies: patientProfile?.allergies || [],
-        },
-        appointmentDetails: {
-          date: apt.date,
-          timeSlot: apt.timeSlot,
-          symptoms: apt.symptoms,
-          aiSummary: apt.aiSummary,
-        },
-        isEmergency: apt.urgencyLevel === "emergency",
-        createdAt: apt.createdAt,
-      };
-    }),
+  // Batch fetch all patient profiles in one query instead of N+1
+  const patientUserIds = appointments.map((apt) => apt.patientId._id);
+  const patientProfiles = await PatientModel.find({
+    userId: { $in: patientUserIds },
+  }).select("userId bloodGroup allergies medicalHistory");
+  const profileMap = new Map(
+    patientProfiles.map((p) => [p.userId.toString(), p]),
   );
+
+  const appointmentsWithDetails = appointments.map((apt) => {
+    const patientProfile = profileMap.get(apt.patientId._id.toString());
+
+    return {
+      appointmentId: apt._id,
+      status: apt.status,
+      urgencyLevel: apt.urgencyLevel,
+      patient: {
+        id: apt.patientId._id,
+        name: apt.patientId.name,
+        email: apt.patientId.email,
+        phone: apt.patientId.phone,
+        gender: apt.patientId.gender,
+        age: calculateAge(apt.patientId.dob),
+        profilePhoto: apt.patientId.profilePhoto,
+        bloodGroup: patientProfile?.bloodGroup,
+        allergies: patientProfile?.allergies || [],
+      },
+      appointmentDetails: {
+        date: apt.date,
+        timeSlot: apt.timeSlot,
+        symptoms: apt.symptoms,
+        aiSummary: apt.aiSummary,
+      },
+      isEmergency: apt.urgencyLevel === "emergency",
+      createdAt: apt.createdAt,
+    };
+  });
 
   const emergencyAppointments = appointmentsWithDetails.filter(
     (a) => a.urgencyLevel === "emergency",
@@ -107,32 +112,37 @@ const getTodayAppointments = async (userId) => {
     .populate("patientId", "name email phone gender dob profilePhoto")
     .sort({ timeSlot: 1 });
 
-  const appointmentsWithDetails = await Promise.all(
-    appointments.map(async (apt) => {
-      const patientProfile = await PatientModel.findOne({
-        userId: apt.patientId._id,
-      }).select("bloodGroup allergies emergencyContact");
-
-      return {
-        appointmentId: apt._id,
-        urgencyLevel: apt.urgencyLevel,
-        timeSlot: apt.timeSlot,
-        patient: {
-          id: apt.patientId._id,
-          name: apt.patientId.name,
-          phone: apt.patientId.phone,
-          gender: apt.patientId.gender,
-          age: calculateAge(apt.patientId.dob),
-          bloodGroup: patientProfile?.bloodGroup,
-          allergies: patientProfile?.allergies || [],
-          emergencyContact: patientProfile?.emergencyContact,
-        },
-        symptoms: apt.symptoms,
-        aiSummary: apt.aiSummary,
-        isEmergency: apt.urgencyLevel === "emergency",
-      };
-    }),
+  // Batch fetch all patient profiles in one query
+  const patientUserIds = appointments.map((apt) => apt.patientId._id);
+  const patientProfiles = await PatientModel.find({
+    userId: { $in: patientUserIds },
+  }).select("userId bloodGroup allergies emergencyContact");
+  const profileMap = new Map(
+    patientProfiles.map((p) => [p.userId.toString(), p]),
   );
+
+  const appointmentsWithDetails = appointments.map((apt) => {
+    const patientProfile = profileMap.get(apt.patientId._id.toString());
+
+    return {
+      appointmentId: apt._id,
+      urgencyLevel: apt.urgencyLevel,
+      timeSlot: apt.timeSlot,
+      patient: {
+        id: apt.patientId._id,
+        name: apt.patientId.name,
+        phone: apt.patientId.phone,
+        gender: apt.patientId.gender,
+        age: calculateAge(apt.patientId.dob),
+        bloodGroup: patientProfile?.bloodGroup,
+        allergies: patientProfile?.allergies || [],
+        emergencyContact: patientProfile?.emergencyContact,
+      },
+      symptoms: apt.symptoms,
+      aiSummary: apt.aiSummary,
+      isEmergency: apt.urgencyLevel === "emergency",
+    };
+  });
 
   return {
     date: new Date().toISOString().split("T")[0],
