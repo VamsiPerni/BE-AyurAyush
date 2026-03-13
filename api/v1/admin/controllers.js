@@ -1,166 +1,187 @@
 const {
-    DoctorApplicationsModel,
-} = require("../../../models/doctorApplicationSchema");
-const { DoctorModel } = require("../../../models/doctorSchema");
-const { UserModel, ROLE_OPTIONS } = require("../../../models/userSchema");
+  getDashboardStats,
+  getPendingDoctorApplications,
+  approveDoctorApplication,
+  rejectDoctorApplication,
+  getPendingNormalAppointments,
+  getEmergencyAppointments,
+  approveAppointment,
+  rejectAppointment,
+  setDoctorAvailability,
+  offlineBookAppointment,
+} = require("./services");
 
-const adminDashboardController = async (req, res) => {
-    try {
-        console.log("-----🟢 inside adminDashboardController-------");
-
-        const totalUsers = await UserModel.countDocuments();
-        const totalDoctors = await UserModel.countDocuments({
-            roles: "doctor",
-        });
-        const totalPatients = await UserModel.countDocuments({
-            roles: "patient",
-        });
-
-        res.status(200).json({
-            isSuccess: true,
-            message: "Admin dashboard loaded successfully",
-            data: {
-                stats: {
-                    totalUsers,
-                    totalDoctors,
-                    totalPatients,
-                },
-            },
-        });
-    } catch (err) {
-        console.error("-----🔴 Error in adminDashboardController--------");
-        console.error(err);
-
-        res.status(500).json({
-            isSuccess: false,
-            message: "Internal Server Error",
-        });
-    }
+const adminDashboardController = async (req, res, next) => {
+  try {
+    const stats = await getDashboardStats();
+    res.status(200).json({
+      isSuccess: true,
+      message: "Admin dashboard loaded successfully",
+      data: { stats },
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
-const reviewDoctorApplicationsController = async (req, res) => {
-    try {
-        console.log("-----🟢 inside reviewDoctorApplicationsController-------");
-
-        const applications = await DoctorApplicationsModel.find({
-            status: "pending",
-        }).populate("userId", "email");
-
-        res.status(200).json({
-            isSuccess: true,
-            message: "Pending doctor applications fetched",
-            data: {
-                applications,
-            },
-        });
-    } catch (err) {
-        console.error(
-            "-----🔴 Error in reviewDoctorApplicationsController--------",
-        );
-
-        res.status(500).json({
-            isSuccess: false,
-            message: "Internal Server Error",
-        });
-    }
+const reviewDoctorApplicationsController = async (req, res, next) => {
+  try {
+    const applications = await getPendingDoctorApplications();
+    res.status(200).json({
+      isSuccess: true,
+      message: "Pending doctor applications fetched",
+      data: { applications },
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
-const approveDoctorApplicationController = async (req, res) => {
-    try {
-        console.log("-----🟢 inside approveDoctorApplicationController-------");
-
-        const { applicationId } = req.params;
-
-        const application =
-            await DoctorApplicationsModel.findById(applicationId);
-
-        if (!application) {
-            return res.status(404).json({
-                isSuccess: false,
-                message: "Doctor application not found",
-            });
-        }
-
-        if (application.status !== "pending") {
-            return res.status(400).json({
-                isSuccess: false,
-                message: "Application already processed",
-            });
-        }
-
-        application.status = "approved";
-        application.reviewedBy = req.currentAdmin.userId;
-        await application.save();
-
-        await UserModel.findByIdAndUpdate(application.userId, {
-            $addToSet: { roles: ROLE_OPTIONS.DOCTOR },
-        });
-
-        // create doctor profile
-        await DoctorModel.create({
-            userId: application.userId,
-            specialization: application.specialization,
-            experience: application.experience,
-            qualification: application.qualification,
-            isVerified: true,
-        });
-
-        res.status(200).json({
-            isSuccess: true,
-            message: "Doctor application approved successfully",
-        });
-    } catch (err) {
-        console.error(
-            "-----🔴 Error in approveDoctorApplicationController--------",
-            err.message,
-        );
-
-        res.status(500).json({
-            isSuccess: false,
-            message: "Internal Server Error",
-        });
-    }
+const approveDoctorApplicationController = async (req, res, next) => {
+  try {
+    const { applicationId } = req.params;
+    await approveDoctorApplication(applicationId, req.currentAdmin.userId);
+    res.status(200).json({
+      isSuccess: true,
+      message: "Doctor application approved successfully",
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
-const rejectDoctorApplicationController = async (req, res) => {
-    try {
-        console.log("-----🟢 inside rejectDoctorApplicationController-------");
+const rejectDoctorApplicationController = async (req, res, next) => {
+  try {
+    const { applicationId } = req.params;
+    await rejectDoctorApplication(applicationId, req.currentAdmin.userId);
+    res.status(200).json({
+      isSuccess: true,
+      message: "Doctor application rejected",
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
-        const { applicationId } = req.params;
+const getPendingNormalAppointmentsController = async (req, res, next) => {
+  try {
+    const data = await getPendingNormalAppointments(req.query);
+    res.status(200).json({
+      isSuccess: true,
+      message: "Pending appointments retrieved",
+      data: {
+        queueType: "normal",
+        ...data,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
-        const application =
-            await DoctorApplicationModel.findById(applicationId);
+const getEmergencyAppointmentsController = async (req, res, next) => {
+  try {
+    const data = await getEmergencyAppointments(req.query);
+    res.status(200).json({
+      isSuccess: true,
+      message: "Emergency appointments retrieved",
+      data: {
+        queueType: "emergency",
+        ...data,
+        alert:
+          data.count > 0
+            ? "Emergency appointments require immediate review!"
+            : null,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
-        if (!application) {
-            return res.status(404).json({
-                isSuccess: false,
-                message: "Doctor application not found",
-            });
-        }
+const approveAppointmentController = async (req, res, next) => {
+  try {
+    const { appointmentId } = req.params;
+    const { edits, adminNotes } = req.body;
+    const data = await approveAppointment(
+      appointmentId,
+      req.currentAdmin.userId,
+      edits,
+      adminNotes,
+    );
+    res.status(200).json({
+      isSuccess: true,
+      message: "Appointment approved successfully",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
-        application.status = "rejected";
-        application.reviewedBy = req.currentAdmin.userId;
-        await application.save();
+const rejectAppointmentController = async (req, res, next) => {
+  try {
+    const { appointmentId } = req.params;
+    const { reason } = req.body;
+    const data = await rejectAppointment(
+      appointmentId,
+      req.currentAdmin.userId,
+      reason,
+    );
+    res.status(200).json({
+      isSuccess: true,
+      message: "Appointment rejected",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
-        res.status(200).json({
-            isSuccess: true,
-            message: "Doctor application rejected",
-        });
-    } catch (err) {
-        console.error(
-            "-----🔴 Error in rejectDoctorApplicationController--------",
-        );
+const setDoctorAvailabilityController = async (req, res, next) => {
+  try {
+    const { doctorId } = req.params;
+    const { availableDays, timeSlots, unavailableDates } = req.body;
+    const data = await setDoctorAvailability(
+      doctorId,
+      req.currentAdmin.userId,
+      { availableDays, timeSlots, unavailableDates },
+    );
+    res.status(200).json({
+      isSuccess: true,
+      message: "Doctor availability updated successfully",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
-        res.status(500).json({
-            isSuccess: false,
-            message: "Internal Server Error",
-        });
-    }
+const offlineBookAppointmentController = async (req, res, next) => {
+  try {
+    const data = await offlineBookAppointment(
+      req.currentAdmin.userId,
+      req.body,
+    );
+    res.status(201).json({
+      isSuccess: true,
+      message: "Offline appointment booked successfully",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
 module.exports = {
-    adminDashboardController,
-    reviewDoctorApplicationsController,
-    approveDoctorApplicationController,
-    rejectDoctorApplicationController,
+  adminDashboardController,
+  reviewDoctorApplicationsController,
+  approveDoctorApplicationController,
+  rejectDoctorApplicationController,
+  getPendingNormalAppointmentsController,
+  getEmergencyAppointmentsController,
+  approveAppointmentController,
+  rejectAppointmentController,
+  setDoctorAvailabilityController,
+  offlineBookAppointmentController,
 };

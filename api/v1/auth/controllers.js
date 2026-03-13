@@ -1,202 +1,133 @@
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const { UserModel } = require("../../../models/userSchema");
+const {
+  signupUser,
+  loginUser,
+  checkEmailExists,
+  forgotPassword,
+  resetPassword,
+} = require("./services");
+const { sendOtp } = require("../otps/services");
 
-const userSignupController = async (req, res) => {
-    try {
-        console.log("-----🟢 inside userSignupController-------");
+const userSignupController = async (req, res, next) => {
+  try {
+    const { name, email, phone, gender, dob, password } = req.body;
 
-        const { name, email, phone, gender, dob, password } = req.body;
+    const user = await signupUser({
+      name,
+      email,
+      phone,
+      gender,
+      dob,
+      password,
+    });
 
-        // We will verfiy through OTP verification through OTP controllers
-
-        const newUser = await UserModel.create({
-            name,
-            email,
-            phone,
-            gender,
-            dob,
-            password,
-        });
-
-        res.status(201).json({
-            isSuccess: true,
-            message: "User Created!",
-            data: {
-                user: {
-                    email: newUser.email,
-                    _id: newUser._id,
-                },
-            },
-        });
-    } catch (err) {
-        console.log("-----🔴 Error in userSignupController--------");
-
-        if (err.code == 11000) {
-            res.status(409).json({
-                isSuccess: false,
-                message: "User account already exists!",
-                data: {},
-            });
-            return;
-        } else if (err.name === "ValidationError") {
-            res.status(400).json({
-                isSuccess: false,
-                message: err.message,
-                data: {},
-            });
-            return;
-        }
-
-        res.status(500).json({
-            isSuccess: false,
-            message: "Internal Server Error",
-        });
-    }
+    res.status(201).json({
+      isSuccess: true,
+      message: "User Created!",
+      data: { user },
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
-const userLoginController = async (req, res) => {
-    try {
-        console.log("-----🟢 inside userLoginController-------");
+const userLoginController = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
 
-        const { email, password } = req.body;
+    const { token, roles } = await loginUser({ email, password });
 
-        // i will check if any user exists with the given email
-        const userDoc = await UserModel.findOne({
-            email: email,
-        }).lean();
+    res.cookie("authorization", token, {
+      httpOnly: true,
+      sameSite: "none",
+      secure: true,
+      maxAge: 1 * 24 * 60 * 60 * 1000,
+    });
 
-        if (userDoc == null) {
-            res.status(400).json({
-                isSuccess: false,
-                message: "User account doesn't exists! Please signup first...",
-            });
-            return;
-        }
-
-        // i will check if the given password matches the hashed-password of the saved user
-        const { password: hashedPassword } = userDoc;
-        const isCorrect = await bcrypt.compare(
-            password.toString(),
-            hashedPassword,
-        );
-
-        if (!isCorrect) {
-            res.status(400).json({
-                isSuccess: false,
-                message: "Incorrect password! Please try again...",
-            });
-            // have some logic for max attempt or max tries a user can do
-            // when ever there is error, increase attempt count
-            // after the threshold limit is reached, then block the activity for few hours
-            return;
-        }
-
-        const token = jwt.sign(
-            {
-                userId: userDoc._id,
-                email: userDoc.email,
-                roles: userDoc.roles, // ["patient", "doctor"]
-            },
-            process.env.JWT_SECRET,
-            { expiresIn: "1d" },
-        );
-
-        res.cookie("authorization", token, {
-            httpOnly: true,
-            sameSite: "none", // prod: STRICT
-            secure: true, // do you want to send it only on HTTPS connection?
-            maxAge: 1 * 24 * 60 * 60 * 1000, // seconds
-        });
-
-        res.status(200).json({
-            isSuccess: true,
-            message: "User logged in!",
-            data: {
-                roles: userDoc.roles,
-            },
-        });
-    } catch (err) {
-        console.log("-----🔴 Error in userLoginController--------");
-
-        res.status(500).json({
-            isSuccess: false,
-            message: "Internal Server Error",
-        });
-    }
+    res.status(200).json({
+      isSuccess: true,
+      message: "User logged in!",
+      data: { roles },
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
-const userLogoutController = async (req, res) => {
-    try {
-        console.log("-----🟢 inside userLogoutController-------");
+const userLogoutController = async (req, res, next) => {
+  try {
+    res.cookie("authorization", "", {
+      httpOnly: true,
+      sameSite: "None",
+      secure: true,
+      maxAge: 0,
+    });
 
-        // remove the cookie ('authorization')
-        res.cookie("authorization", "", {
-            httpOnly: true,
-            sameSite: "None", // prod: STRICT
-            secure: true, // do you want to send it only on HTTPS connection?
-            maxAge: 0, // seconds
-        });
-
-        res.status(200).json({
-            isSuccess: true,
-            message: "User logged out!",
-        });
-    } catch (err) {
-        console.log("-----🔴 Error in userLogoutController--------");
-
-        res.status(500).json({
-            isSuccess: false,
-            message: "Internal Server Error",
-        });
-    }
+    res.status(200).json({
+      isSuccess: true,
+      message: "User logged out!",
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
-const getCurrentUserController = (req, res) => {
-    try {
-        const user = req.currentUser;
+const getCurrentUserController = (req, res, next) => {
+  try {
+    const { userId, roles } = req.currentUser;
 
-        res.status(200).json({
-            isSuccess: true,
-            data: {
-                userId: user.userId,
-                roles: user.roles,
-            },
-        });
-    } catch (err) {
-        res.status(500).json({
-            isSuccess: false,
-            message: "Internal Server Error",
-        });
-    }
+    res.status(200).json({
+      isSuccess: true,
+      data: { userId, roles },
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
-const checkEmailExistsController = async (req, res) => {
-    try {
-        const { email } = req.query;
+const checkEmailExistsController = async (req, res, next) => {
+  try {
+    const { email } = req.query;
+    const exists = await checkEmailExists(email);
+    res.status(200).json({ exists });
+  } catch (err) {
+    next(err);
+  }
+};
 
-        const user = await UserModel.findOne({ email });
+const forgotPasswordController = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    await forgotPassword(email);
+    const expiryMinutes = await sendOtp(email);
+    res.status(200).json({
+      isSuccess: true,
+      message: `OTP sent to ${email}. Valid for ${expiryMinutes} minutes.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
-        if (user) {
-            return res.status(200).json({
-                exists: true,
-            });
-        }
-
-        res.status(200).json({
-            exists: false,
-        });
-    } catch (err) {
-        res.status(500).json({
-            message: "Internal Server Error",
-        });
-    }
+const resetPasswordController = async (req, res, next) => {
+  try {
+    const { email, newPassword } = req.body;
+    await resetPassword(email, newPassword);
+    res.status(200).json({
+      isSuccess: true,
+      message:
+        "Password reset successfully. You can now login with your new password.",
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
 module.exports = {
-    userSignupController,
-    userLoginController,
-    userLogoutController,
-    getCurrentUserController,
-    checkEmailExistsController,
+  userSignupController,
+  userLoginController,
+  userLogoutController,
+  getCurrentUserController,
+  checkEmailExistsController,
+  forgotPasswordController,
+  resetPasswordController,
 };

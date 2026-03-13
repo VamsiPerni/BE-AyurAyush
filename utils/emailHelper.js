@@ -3,34 +3,28 @@ const { Resend } = require("resend");
 const resend = new Resend(process.env.RESEND_MAILER_API_KEY);
 
 const sendEmail = async (toEmail, subject, htmlText) => {
-    try {
-        const { data, error } = await resend.emails.send({
-            from: process.env.SENDER_EMAIL,
-            to: toEmail,
-            subject: subject,
-            html: htmlText,
-        });
+  try {
+    const { data, error } = await resend.emails.send({
+      from: process.env.SENDER_EMAIL,
+      to: toEmail,
+      subject: subject,
+      html: htmlText,
+    });
 
-        if (error) {
-            throw new Error(error.message);
-        }
-
-        console.log("🟡 : resp:", data);
-        console.log("----------- ✅ Message sent -----------------", data);
-    } catch (err) {
-        console.log("----------- ❌ Error while sending mail ------------");
-        console.log(err.message);
-        console.log("----------- --------------------------- ------------");
-        throw new Error("Email not sent");
+    if (error) {
+      throw new Error(error.message);
     }
+  } catch (err) {
+    console.error("Email send failed:", err.message);
+    throw new Error("Email not sent");
+  }
 };
 
 const sendOtpEmail = async (toEmail, otp) => {
-    console.log("... Sending OTP Email to ", toEmail);
-    await sendEmail(
-        toEmail,
-        "OTP Verification for AyurAyush HealthCare App",
-        `
+  await sendEmail(
+    toEmail,
+    "OTP Verification for AyurAyush HealthCare App",
+    `
 <!DOCTYPE html>
 <html>
 <head>
@@ -128,7 +122,7 @@ const sendOtpEmail = async (toEmail, otp) => {
 </body>
 </html>
 `,
-    );
+  );
 };
 
-module.exports = { sendOtpEmail };
+module.exports = { sendEmail, sendOtpEmail };

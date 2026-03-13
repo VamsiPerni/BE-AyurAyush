@@ -1,105 +1,168 @@
 const {
-    DoctorApplicationsModel,
-} = require("../../../models/doctorApplicationSchema");
-const { PatientModel } = require("../../../models/patientSchema");
+  getPatientDashboard,
+  applyForDoctorRole,
+  getAvailableSlots,
+  bookAppointment,
+  getPatientAppointments,
+  getAppointmentDetails,
+  cancelAppointment,
+  getVerifiedDoctors,
+  getPatientProfile,
+  updatePatientProfile,
+} = require("./services");
 
-const patientDashboardController = async (req, res) => {
-    try {
-        console.log("-----🟢 inside patientDashboardController-------");
-
-        const { userId } = req.currentUser;
-
-        let patient = await PatientModel.findOne({ userId });
-
-        if (!patient) {
-            console.log("🟡 Patient profile not found, creating new one");
-
-            patient = await PatientModel.create({
-                userId,
-                bloodGroup: null,
-                medicalHistory: [],
-                allergies: [],
-                emergencyContact: {},
-            });
-        }
-
-        res.status(200).json({
-            isSuccess: true,
-            message: "Patient dashboard loaded successfully",
-            data: {
-                patientId: patient._id,
-                userId: patient.userId,
-                bloodGroup: patient.bloodGroup,
-                medicalHistory: patient.medicalHistory,
-                allergies: patient.allergies,
-                emergencyContact: patient.emergencyContact,
-                createdAt: patient.createdAt,
-            },
-        });
-    } catch (err) {
-        console.error(err);
-
-        // duplicate patient profile (edge case)
-        if (err.code === 11000) {
-            return res.status(409).json({
-                isSuccess: false,
-                message: "Patient profile already exists",
-            });
-        }
-
-        res.status(500).json({
-            isSuccess: false,
-            message: "Internal Server Error",
-        });
-    }
+const patientDashboardController = async (req, res, next) => {
+  try {
+    const data = await getPatientDashboard(req.currentUser.userId);
+    res.status(200).json({
+      isSuccess: true,
+      message: "Patient dashboard loaded successfully",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
-const applyForDoctorRoleController = async (req, res) => {
-    try {
-        console.log("-----🟢 inside applyForDoctorRoleController-------");
-
-        const { userId } = req.currentPatient;
-
-        const { qualification, specialization, experience, licenseNumber } =
-            req.body;
-
-        const existingApplication = await DoctorApplicationsModel.findOne({
-            userId,
-        });
-
-        if (existingApplication) {
-            return res.status(400).json({
-                isSuccess: false,
-                message:
-                    "You have already applied for doctor role. Please wait for admin review.",
-            });
-        }
-
-        const application = await DoctorApplicationsModel.create({
-            userId,
-            qualification,
-            specialization,
-            experience,
-            licenseNumber,
-        });
-
-        res.status(201).json({
-            isSuccess: true,
-            message: "Doctor role application submitted successfully",
-            data: {
-                applicationId: application._id,
-                status: application.status,
-            },
-        });
-    } catch (err) {
-        console.error("-----🔴 Error in applyForDoctorRoleController--------");
-        console.error(err);
-
-        res.status(500).json({
-            isSuccess: false,
-            message: "Internal Server Error",
-        });
-    }
+const applyForDoctorRoleController = async (req, res, next) => {
+  try {
+    const data = await applyForDoctorRole(req.currentPatient.userId, req.body);
+    res.status(201).json({
+      isSuccess: true,
+      message: "Doctor role application submitted successfully",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
-module.exports = { patientDashboardController, applyForDoctorRoleController };
+const getAvailableSlotsController = async (req, res, next) => {
+  try {
+    const { doctorId, date } = req.query;
+    const data = await getAvailableSlots(doctorId, date);
+    res.status(200).json({
+      isSuccess: true,
+      message: "Available slots retrieved",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const bookAppointmentController = async (req, res, next) => {
+  try {
+    const data = await bookAppointment(req.currentPatient.userId, req.body);
+    const message =
+      data.urgencyLevel === "emergency"
+        ? "Emergency appointment created! Waiting for admin approval."
+        : "Appointment booked successfully! Waiting for admin approval.";
+    res.status(201).json({ isSuccess: true, message, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getPatientAppointmentsController = async (req, res, next) => {
+  try {
+    const data = await getPatientAppointments(
+      req.currentPatient.userId,
+      req.query.status,
+      req.query,
+    );
+    res.status(200).json({
+      isSuccess: true,
+      message: "Appointments retrieved successfully",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getAppointmentDetailsController = async (req, res, next) => {
+  try {
+    const data = await getAppointmentDetails(
+      req.currentPatient.userId,
+      req.params.appointmentId,
+    );
+    res.status(200).json({
+      isSuccess: true,
+      message: "Appointment details retrieved",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const cancelAppointmentController = async (req, res, next) => {
+  try {
+    await cancelAppointment(
+      req.currentPatient.userId,
+      req.params.appointmentId,
+    );
+    res.status(200).json({
+      isSuccess: true,
+      message: "Appointment cancelled successfully",
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getVerifiedDoctorsController = async (req, res, next) => {
+  try {
+    const data = await getVerifiedDoctors(req.query.specialization, req.query);
+    res.status(200).json({
+      isSuccess: true,
+      message: "Verified doctors retrieved",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getPatientProfileController = async (req, res, next) => {
+  try {
+    const data = await getPatientProfile(req.currentPatient.userId);
+    res.status(200).json({
+      isSuccess: true,
+      message: "Patient profile retrieved",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const updatePatientProfileController = async (req, res, next) => {
+  try {
+    const data = await updatePatientProfile(
+      req.currentPatient.userId,
+      req.body,
+    );
+    res.status(200).json({
+      isSuccess: true,
+      message: "Patient profile updated successfully",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = {
+  patientDashboardController,
+  applyForDoctorRoleController,
+  getAvailableSlotsController,
+  bookAppointmentController,
+  getPatientAppointmentsController,
+  getAppointmentDetailsController,
+  cancelAppointmentController,
+  getVerifiedDoctorsController,
+  getPatientProfileController,
+  updatePatientProfileController,
+};
