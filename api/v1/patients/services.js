@@ -13,7 +13,7 @@ const {
     notifyAppointmentBooked,
     notifyAppointmentCancelled,
 } = require("../../../utils/appointmentNotifications");
-const { ChatHistoryModel } = require("../../../models/Chathistoryschema");
+const { ChatHistoryModel } = require("../../../models/chatHistorySchema");
 
 const getPatientDashboard = async (userId) => {
     console.log("-----🟢 inside getPatientDashboard-------");
