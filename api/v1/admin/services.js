@@ -620,17 +620,6 @@ const offlineBookAppointment = async (adminId, bookingData) => {
         throw err;
     }
 
-    let patient = await PatientModel.findOne({ userId: patientUser._id });
-    if (!patient) {
-        patient = await PatientModel.create({
-            userId: patientUser._id,
-            bloodGroup: null,
-            medicalHistory: [],
-            allergies: [],
-            emergencyContact: {},
-        });
-    }
-
     const doctor = await DoctorModel.findOne({
         userId: doctorId,
         isVerified: true,
@@ -654,22 +643,63 @@ const offlineBookAppointment = async (adminId, bookingData) => {
         throw err;
     }
 
-    const appointment = await AppointmentModel.create({
-        patientId: patientUser._id,
-        doctorId,
-        date: new Date(date),
-        timeSlot,
-        status: "confirmed",
-        urgencyLevel: urgencyLevel || "normal",
-        symptoms: symptoms || [],
-        aiSummary: symptoms
-            ? `**Walk-in Patient**\n\nSymptoms: ${symptoms.join(", ")}\n\nBooked by admin (offline).`
-            : "Walk-in patient. Booked by admin (offline).",
-        adminApprovedBy: adminId,
-        adminApprovedAt: new Date(),
-        adminNotes: adminNotes || "Offline booking by admin",
-        originalBooking: { doctorId, date: new Date(date), timeSlot },
-    });
+    const session = await mongoose.startSession();
+    let appointment;
+
+    try {
+        await session.withTransaction(async () => {
+            let patient = await PatientModel.findOne(
+                { userId: patientUser._id },
+                null,
+                { session },
+            );
+
+            if (!patient) {
+                const createdPatients = await PatientModel.create(
+                    [
+                        {
+                            userId: patientUser._id,
+                            bloodGroup: null,
+                            medicalHistory: [],
+                            allergies: [],
+                            emergencyContact: {},
+                        },
+                    ],
+                    { session },
+                );
+                patient = createdPatients[0];
+            }
+
+            const createdAppointments = await AppointmentModel.create(
+                [
+                    {
+                        patientId: patient._id,
+                        doctorId,
+                        date: new Date(date),
+                        timeSlot,
+                        status: "confirmed",
+                        urgencyLevel: urgencyLevel || "normal",
+                        symptoms: symptoms || [],
+                        aiSummary: symptoms
+                            ? `**Walk-in Patient**\n\nSymptoms: ${symptoms.join(", ")}\n\nBooked by admin (offline).`
+                            : "Walk-in patient. Booked by admin (offline).",
+                        adminApprovedBy: adminId,
+                        adminApprovedAt: new Date(),
+                        adminNotes: adminNotes || "Offline booking by admin",
+                        originalBooking: {
+                            doctorId,
+                            date: new Date(date),
+                            timeSlot,
+                        },
+                    },
+                ],
+                { session },
+            );
+            appointment = createdAppointments[0];
+        });
+    } finally {
+        await session.endSession();
+    }
 
     const doctorUser = await UserModel.findById(doctorId).select("name");
 

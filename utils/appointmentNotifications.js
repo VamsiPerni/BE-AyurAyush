@@ -1,4 +1,5 @@
 const { sendEmail } = require("./emailHelper");
+const logger = require("./logger");
 
 const buildEmailHtml = (title, body) => `
 <!DOCTYPE html>
@@ -34,7 +35,10 @@ const sendNotification = async (toEmail, subject, title, body) => {
     try {
         await sendEmail(toEmail, subject, buildEmailHtml(title, body));
     } catch (err) {
-        console.error(`Notification email failed (${subject}):`, err.message);
+        logger.error("Notification email failed", {
+            subject,
+            error: err.message,
+        });
     }
 };
 

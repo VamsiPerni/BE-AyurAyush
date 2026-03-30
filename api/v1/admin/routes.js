@@ -22,6 +22,7 @@ const {
     rejectAppointmentValidator,
     offlineBookValidator,
     createDoctorAccountValidator,
+    setDoctorAvailabilityValidator,
 } = require("./dto");
 
 const adminsRouter = express.Router();
@@ -109,6 +110,7 @@ adminsRouter.put(
     "/doctors/:doctorId/availability",
     validateLoggedInUserMiddleware,
     validateIsAdminMiddleware,
+    setDoctorAvailabilityValidator,
     setDoctorAvailabilityController,
 );
 

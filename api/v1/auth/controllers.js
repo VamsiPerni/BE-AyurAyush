@@ -4,6 +4,7 @@ const {
     checkEmailExists,
     forgotPassword,
     resetPassword,
+    changePasswordForLoggedInUser,
 } = require("./services");
 const { sendOtp } = require("../otps/services");
 const { UserModel } = require("../../../models/userSchema");
@@ -35,7 +36,10 @@ const userLoginController = async (req, res, next) => {
     try {
         const { email, password } = req.body;
 
-        const { token, roles } = await loginUser({ email, password });
+        const { token, roles, mustChangePassword } = await loginUser({
+            email,
+            password,
+        });
 
         res.cookie("authorization", token, {
             httpOnly: true,
@@ -47,7 +51,7 @@ const userLoginController = async (req, res, next) => {
         res.status(200).json({
             isSuccess: true,
             message: "User logged in!",
-            data: { roles },
+            data: { roles, mustChangePassword },
         });
     } catch (err) {
         next(err);
@@ -72,13 +76,27 @@ const userLogoutController = async (req, res, next) => {
     }
 };
 
-const getCurrentUserController = (req, res, next) => {
+const getCurrentUserController = async (req, res, next) => {
     try {
-        const { userId, roles } = req.currentUser;
+        const { userId } = req.currentUser;
+        const user = await UserModel.findById(userId).select(
+            "roles mustChangePassword",
+        );
+
+        if (!user) {
+            return res.status(404).json({
+                isSuccess: false,
+                message: "User not found",
+            });
+        }
 
         res.status(200).json({
             isSuccess: true,
-            data: { userId, roles },
+            data: {
+                userId,
+                roles: user.roles,
+                mustChangePassword: !!user.mustChangePassword,
+            },
         });
     } catch (err) {
         next(err);
@@ -150,4 +168,5 @@ module.exports = {
     checkEmailExistsController,
     forgotPasswordController,
     resetPasswordController,
+    changePasswordController,
 };
