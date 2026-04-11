@@ -216,9 +216,13 @@ const completeConversationWithSummary = async (chatHistory) => {
     const isEmergency = chatHistory.status === "emergency";
     let providerUnavailable = false;
     let summary;
+    let summaryMeta = null;
 
     try {
-        summary = await generateConversationSummary(messagesForSummary);
+        const summaryResult =
+            await generateConversationSummary(messagesForSummary);
+        summary = summaryResult.summary;
+        summaryMeta = summaryResult.meta;
     } catch (err) {
         if (!isAIProviderErrorForFallback(err)) {
             throw err;
@@ -252,6 +256,7 @@ const completeConversationWithSummary = async (chatHistory) => {
 
     return {
         summary,
+        summaryMeta,
         providerUnavailable,
         recommendation: {
             suggestedCarePath: recommendation.suggestedCarePath,
@@ -336,10 +341,13 @@ const sendMessage = async (userId, { conversationId, message }) => {
     }));
 
     let aiResponse;
+    let aiMeta = null;
     let providerUnavailable = false;
 
     try {
-        aiResponse = await getAIChatResponse(messagesForAI, isEmergency);
+        const aiResult = await getAIChatResponse(messagesForAI, isEmergency);
+        aiResponse = aiResult.aiResponse;
+        aiMeta = aiResult.meta;
         await chatHistory.addMessage("assistant", aiResponse, isEmergency);
     } catch (err) {
         if (isAIProviderErrorForFallback(err)) {
@@ -441,7 +449,7 @@ const getPatientConversations = async (userId, query = {}) => {
     const [conversations, totalCount] = await Promise.all([
         ChatHistoryModel.find(filter)
             .select(
-                "conversationId status summaryStatus summary.symptoms summary.urgencyLevel createdAt appointmentId",
+                "conversationId status summaryStatus summary.symptoms summary.urgencyLevel summary.duration summary.recommendedSpecialist summary.detailedSummary createdAt appointmentId",
             )
             .sort({ createdAt: -1 })
             .skip(skip)

@@ -1,12 +1,7 @@
 const dotenv = require("dotenv");
 dotenv.config();
 
-const required = [
-    "MONGO_DB_URL",
-    "JWT_SECRET",
-    "GEMINI_AI_API_KEY",
-    "RESEND_MAILER_API_KEY",
-];
+const required = ["MONGO_DB_URL", "JWT_SECRET", "RESEND_MAILER_API_KEY"];
 
 required.forEach((key) => {
     if (!process.env[key]) {
@@ -14,6 +9,18 @@ required.forEach((key) => {
         process.exit(1);
     }
 });
+
+const hasGemini = Boolean(
+    process.env.GEMINI_AI_API_KEY || process.env.GEMINI_AI_API_KEYS,
+);
+const hasGroq = Boolean(process.env.GROQ_API_KEY || process.env.GROQ_API_KEYS);
+
+if (!hasGemini && !hasGroq) {
+    console.error(
+        "Missing AI provider keys: set GEMINI_AI_API_KEY(S) and/or GROQ_API_KEY(S)",
+    );
+    process.exit(1);
+}
 
 const logger = require("./utils/logger");
 const { csrfOriginCheckMiddleware } = require("./utils/csrfProtection");

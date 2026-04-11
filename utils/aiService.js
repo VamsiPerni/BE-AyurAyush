@@ -10,10 +10,35 @@ const GEMINI_API_KEYS = (
     .map((k) => k.trim())
     .filter(Boolean);
 const genAIClients = GEMINI_API_KEYS.map((key) => new GoogleGenerativeAI(key));
+const GROQ_API_KEYS = (
+    process.env.GROQ_API_KEYS ||
+    process.env.GROQ_API_KEY ||
+    ""
+)
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
+const AI_PRIMARY_PROVIDER = (
+    process.env.AI_PRIMARY_PROVIDER || "gemini"
+).toLowerCase();
+const AI_FALLBACK_PROVIDER = (
+    process.env.AI_FALLBACK_PROVIDER || "groq"
+).toLowerCase();
+const AI_FORCE_PROVIDER = (process.env.AI_FORCE_PROVIDER || "").toLowerCase();
+const AI_GEMINI_ENABLED =
+    String(process.env.AI_GEMINI_ENABLED || "true").toLowerCase() !== "false";
+const AI_GROQ_ENABLED =
+    String(process.env.AI_GROQ_ENABLED || "true").toLowerCase() !== "false";
 const AI_MAX_RETRIES = Number(process.env.AI_MAX_RETRIES || 3);
 const AI_RETRY_BASE_MS = Number(process.env.AI_RETRY_BASE_MS || 700);
 const AI_MODEL_CANDIDATES = (
     process.env.AI_MODEL_CANDIDATES || "gemini-2.5-flash"
+)
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+const GROQ_MODEL_CANDIDATES = (
+    process.env.GROQ_MODEL_CANDIDATES || "llama-3.3-70b-versatile"
 )
     .split(",")
     .map((m) => m.trim())
@@ -135,6 +160,59 @@ const checkForEmergency = (message) => {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const isProviderEnabled = (provider) => {
+    if (provider === "gemini") return AI_GEMINI_ENABLED;
+    if (provider === "groq") return AI_GROQ_ENABLED;
+    return false;
+};
+
+const isProviderConfigured = (provider) => {
+    if (provider === "gemini") return genAIClients.length > 0;
+    if (provider === "groq") return GROQ_API_KEYS.length > 0;
+    return false;
+};
+
+const getProviderModels = (provider) => {
+    if (provider === "gemini") {
+        return AI_MODEL_CANDIDATES.length
+            ? AI_MODEL_CANDIDATES
+            : ["gemini-2.5-flash"];
+    }
+    if (provider === "groq") {
+        return GROQ_MODEL_CANDIDATES.length
+            ? GROQ_MODEL_CANDIDATES
+            : ["llama-3.3-70b-versatile"];
+    }
+    return [];
+};
+
+const getProviderOrder = () => {
+    const valid = new Set(["gemini", "groq"]);
+
+    const candidates = [];
+    if (AI_FORCE_PROVIDER && valid.has(AI_FORCE_PROVIDER)) {
+        candidates.push(AI_FORCE_PROVIDER);
+    } else {
+        if (valid.has(AI_PRIMARY_PROVIDER)) {
+            candidates.push(AI_PRIMARY_PROVIDER);
+        }
+        if (
+            AI_FALLBACK_PROVIDER !== "none" &&
+            valid.has(AI_FALLBACK_PROVIDER) &&
+            AI_FALLBACK_PROVIDER !== AI_PRIMARY_PROVIDER
+        ) {
+            candidates.push(AI_FALLBACK_PROVIDER);
+        }
+    }
+
+    const uniqueCandidates = [...new Set(candidates)];
+
+    return uniqueCandidates.filter(
+        (provider) =>
+            isProviderEnabled(provider) && isProviderConfigured(provider),
+    );
+};
+
 const isRetryableAIError = (err) => {
     const status =
         err?.status ||
@@ -191,12 +269,14 @@ const isProviderOriginError = (err) => {
     return (
         message.includes("googlegenerativeai error") ||
         message.includes("generativelanguage.googleapis.com") ||
+        message.includes("api.groq.com") ||
+        message.includes("groq") ||
         message.includes("quota exceeded") ||
         message.includes("rate-limits")
     );
 };
 
-const createAIUnavailableError = (operation, originalError) => {
+const createAIUnavailableError = (operation, originalError, provider) => {
     const error = new Error(
         "AI service is temporarily busy. Please try again in a few seconds.",
     );
@@ -205,13 +285,13 @@ const createAIUnavailableError = (operation, originalError) => {
     error.data = {
         operation,
         retryable: true,
-        provider: "google-generative-ai",
+        provider: provider || "unknown",
     };
     error.cause = originalError;
     return error;
 };
 
-const createAIQuotaExceededError = (operation, originalError) => {
+const createAIQuotaExceededError = (operation, originalError, provider) => {
     const error = new Error(
         "AI quota is currently exhausted. Please try again shortly.",
     );
@@ -220,13 +300,13 @@ const createAIQuotaExceededError = (operation, originalError) => {
     error.data = {
         operation,
         retryable: false,
-        provider: "google-generative-ai",
+        provider: provider || "unknown",
     };
     error.cause = originalError;
     return error;
 };
 
-const withAIRetry = async (operation, fn) => {
+const withAIRetry = async (operation, provider, fn) => {
     let lastError;
 
     for (let attempt = 1; attempt <= AI_MAX_RETRIES; attempt += 1) {
@@ -234,7 +314,7 @@ const withAIRetry = async (operation, fn) => {
             return await fn();
         } catch (err) {
             if (isQuotaExceededError(err)) {
-                throw createAIQuotaExceededError(operation, err);
+                throw createAIQuotaExceededError(operation, err, provider);
             }
 
             lastError = err;
@@ -249,6 +329,7 @@ const withAIRetry = async (operation, fn) => {
 
             logger.warn("Transient AI provider error, retrying", {
                 operation,
+                provider,
                 attempt,
                 maxRetries: AI_MAX_RETRIES,
                 waitMs,
@@ -263,77 +344,121 @@ const withAIRetry = async (operation, fn) => {
         throw lastError;
     }
 
-    throw createAIUnavailableError(operation, lastError);
+    throw createAIUnavailableError(operation, lastError, provider);
 };
 
 const withAIModelFallback = async (operation, handler) => {
-    if (!genAIClients.length) {
+    const providersToTry = getProviderOrder();
+
+    if (!providersToTry.length) {
         const err = new Error(
-            "Gemini API key is missing. Set GEMINI_AI_API_KEY or GEMINI_AI_API_KEYS.",
+            "No AI provider is configured/enabled. Set GEMINI_AI_API_KEY(S) and/or GROQ_API_KEY and enable a provider.",
         );
         err.statusCode = 500;
         throw err;
     }
 
-    const modelsToTry = AI_MODEL_CANDIDATES.length
-        ? AI_MODEL_CANDIDATES
-        : ["gemini-2.5-flash"];
-
     let lastError;
+    const modelsTried = [];
 
     for (
-        let providerIndex = 0;
-        providerIndex < genAIClients.length;
-        providerIndex += 1
+        let providerPos = 0;
+        providerPos < providersToTry.length;
+        providerPos += 1
     ) {
-        const providerClient = genAIClients[providerIndex];
+        const provider = providersToTry[providerPos];
+        const providerModels = getProviderModels(provider);
+
+        const providerClients =
+            provider === "gemini" ? genAIClients : GROQ_API_KEYS;
 
         for (
-            let modelIndex = 0;
-            modelIndex < modelsToTry.length;
-            modelIndex += 1
+            let clientIndex = 0;
+            clientIndex < providerClients.length;
+            clientIndex += 1
         ) {
-            const modelName = modelsToTry[modelIndex];
+            const providerClient = providerClients[clientIndex];
 
-            try {
-                return await withAIRetry(
-                    `${operation}:key${providerIndex + 1}:${modelName}`,
-                    () =>
-                        handler({
-                            modelName,
-                            providerClient,
-                            providerIndex,
-                        }),
-                );
-            } catch (err) {
-                lastError = err;
+            for (
+                let modelIndex = 0;
+                modelIndex < providerModels.length;
+                modelIndex += 1
+            ) {
+                const modelName = providerModels[modelIndex];
+                const keySuffix =
+                    provider === "gemini" ? `:key${clientIndex + 1}` : "";
+                modelsTried.push(`${provider}${keySuffix}:${modelName}`);
 
-                const retryable =
-                    err?.code === "AI_SERVICE_UNAVAILABLE" ||
-                    err?.code === "AI_QUOTA_EXCEEDED" ||
-                    isRetryableAIError(err);
-                const modelNotSupported = isModelNotSupportedError(err);
-                const fallbackEligible = retryable || modelNotSupported;
+                try {
+                    const output = await withAIRetry(
+                        `${operation}:${provider}${keySuffix}:${modelName}`,
+                        provider,
+                        () =>
+                            handler({
+                                provider,
+                                modelName,
+                                providerClient,
+                                providerClientIndex: clientIndex,
+                            }),
+                    );
 
-                if (!fallbackEligible) {
-                    throw err;
+                    const meta = {
+                        operation,
+                        provider,
+                        model: modelName,
+                        providerClientIndex: clientIndex + 1,
+                        providerOrder: providerPos + 1,
+                        fallbackUsed:
+                            providerPos > 0 ||
+                            clientIndex > 0 ||
+                            modelIndex > 0,
+                    };
+
+                    logger.info("AI provider served request", meta);
+                    return { output, meta };
+                } catch (err) {
+                    lastError = err;
+
+                    const retryable =
+                        err?.code === "AI_SERVICE_UNAVAILABLE" ||
+                        err?.code === "AI_QUOTA_EXCEEDED" ||
+                        isRetryableAIError(err);
+                    const modelNotSupported = isModelNotSupportedError(err);
+                    const fallbackEligible = retryable || modelNotSupported;
+
+                    if (!fallbackEligible) {
+                        throw err;
+                    }
+
+                    const hasAnotherModel =
+                        modelIndex < providerModels.length - 1;
+                    const hasAnotherClient =
+                        clientIndex < providerClients.length - 1;
+                    const hasAnotherProvider =
+                        providerPos < providersToTry.length - 1;
+
+                    logger.warn("Switching to fallback AI model/provider", {
+                        operation,
+                        provider,
+                        providerClientIndex: clientIndex + 1,
+                        failedModel: modelName,
+                        providerOrder: providerPos + 1,
+                        hasAnotherModel,
+                        hasAnotherClient,
+                        hasAnotherProvider,
+                        modelNotSupported,
+                        quotaExceeded: err?.code === "AI_QUOTA_EXCEEDED",
+                        error: err.message,
+                    });
+
+                    if (
+                        !hasAnotherModel &&
+                        !hasAnotherClient &&
+                        !hasAnotherProvider
+                    ) {
+                        break;
+                    }
                 }
-
-                const hasAnotherModel = modelIndex < modelsToTry.length - 1;
-                const hasAnotherKey = providerIndex < genAIClients.length - 1;
-
-                logger.warn("Switching to fallback AI model/provider", {
-                    operation,
-                    failedModel: modelName,
-                    providerIndex: providerIndex + 1,
-                    hasAnotherModel,
-                    hasAnotherKey,
-                    modelNotSupported,
-                    quotaExceeded: err?.code === "AI_QUOTA_EXCEEDED",
-                    error: err.message,
-                });
-
-                if (!hasAnotherModel && !hasAnotherKey) break;
             }
         }
     }
@@ -341,8 +466,8 @@ const withAIModelFallback = async (operation, handler) => {
     if (lastError?.code === "AI_QUOTA_EXCEEDED") {
         lastError.data = {
             ...(lastError.data || {}),
-            providersTried: genAIClients.length,
-            modelsTried: modelsToTry,
+            providersTried: providersToTry,
+            modelsTried,
         };
         throw lastError;
     }
@@ -358,57 +483,121 @@ const withAIModelFallback = async (operation, handler) => {
         throw lastError;
     }
 
-    const unavailableError = createAIUnavailableError(operation, lastError);
+    const unavailableError = createAIUnavailableError(
+        operation,
+        lastError,
+        lastError?.data?.provider,
+    );
     unavailableError.data = {
         ...(unavailableError.data || {}),
-        modelsTried: modelsToTry,
+        providersTried: providersToTry,
+        modelsTried,
     };
 
     throw unavailableError;
 };
 
+const groqChatCompletion = async ({ modelName, messages, apiKey }) => {
+    const response = await fetch(
+        "https://api.groq.com/openai/v1/chat/completions",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                model: modelName,
+                messages,
+                temperature: 0.2,
+            }),
+        },
+    );
+
+    let data;
+    try {
+        data = await response.json();
+    } catch {
+        data = null;
+    }
+
+    if (!response.ok) {
+        const error = new Error(
+            data?.error?.message ||
+                `Groq request failed with status ${response.status}`,
+        );
+        error.statusCode = response.status;
+        error.provider = "groq";
+        error.data = {
+            provider: "groq",
+            statusCode: response.status,
+        };
+        throw error;
+    }
+
+    return data?.choices?.[0]?.message?.content || "";
+};
+
 // Get AI chat response from Gemini
 const getAIChatResponse = async (messages, isEmergency = false) => {
-    return withAIModelFallback(
+    const result = await withAIModelFallback(
         "chat-response",
-        async ({ modelName, providerClient }) => {
-            const model = providerClient.getGenerativeModel({
-                model: modelName,
-            });
-
+        async ({ provider, modelName, providerClient }) => {
             const systemPrompt = isEmergency
                 ? SYSTEM_PROMPTS.emergency
                 : SYSTEM_PROMPTS.normal;
 
-            // Build chat history for Gemini format
-            const history = messages.slice(0, -1).map((msg) => ({
-                role: msg.role === "assistant" ? "model" : "user",
-                parts: [{ text: msg.content }],
-            }));
+            if (provider === "gemini") {
+                const model = providerClient.getGenerativeModel({
+                    model: modelName,
+                });
 
-            const chat = model.startChat({
-                history,
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-            });
+                const history = messages.slice(0, -1).map((msg) => ({
+                    role: msg.role === "assistant" ? "model" : "user",
+                    parts: [{ text: msg.content }],
+                }));
 
-            const lastMessage = messages[messages.length - 1];
-            const result = await chat.sendMessage(lastMessage.content);
-            const response = result.response.text();
+                const chat = model.startChat({
+                    history,
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                });
 
-            return response;
+                const lastMessage = messages[messages.length - 1];
+                const result = await chat.sendMessage(lastMessage.content);
+                return result.response.text();
+            }
+
+            if (provider === "groq") {
+                const chatMessages = [
+                    { role: "system", content: systemPrompt },
+                    ...messages.map((msg) => ({
+                        role: msg.role === "assistant" ? "assistant" : "user",
+                        content: msg.content,
+                    })),
+                ];
+
+                return groqChatCompletion({
+                    modelName,
+                    messages: chatMessages,
+                    apiKey: providerClient,
+                });
+            }
+
+            throw new Error(`Unsupported AI provider: ${provider}`);
         },
     );
+
+    return {
+        aiResponse: result.output,
+        meta: result.meta,
+    };
 };
 
 // Generate conversation summary using Gemini
 const generateConversationSummary = async (messages) => {
     const result = await withAIModelFallback(
         "conversation-summary",
-        async ({ modelName, providerClient }) => {
-            const model = providerClient.getGenerativeModel({
-                model: modelName,
-            });
-
+        async ({ provider, modelName, providerClient }) => {
             const conversationText = messages
                 .map(
                     (msg) =>
@@ -416,22 +605,44 @@ const generateConversationSummary = async (messages) => {
                 )
                 .join("\n");
 
-            return model.generateContent({
-                contents: [
-                    {
-                        role: "user",
-                        parts: [
-                            {
-                                text: `${SYSTEM_PROMPTS.summary}\n\nConversation:\n${conversationText}`,
-                            },
-                        ],
-                    },
-                ],
-            });
+            if (provider === "gemini") {
+                const model = providerClient.getGenerativeModel({
+                    model: modelName,
+                });
+
+                const result = await model.generateContent({
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [
+                                {
+                                    text: `${SYSTEM_PROMPTS.summary}\n\nConversation:\n${conversationText}`,
+                                },
+                            ],
+                        },
+                    ],
+                });
+                return result.response.text().trim();
+            }
+
+            if (provider === "groq") {
+                return groqChatCompletion({
+                    modelName,
+                    messages: [
+                        { role: "system", content: SYSTEM_PROMPTS.summary },
+                        {
+                            role: "user",
+                            content: `Conversation:\n${conversationText}`,
+                        },
+                    ],
+                    apiKey: providerClient,
+                });
+            }
+
+            throw new Error(`Unsupported AI provider: ${provider}`);
         },
     );
-
-    const responseText = result.response.text().trim();
+    const responseText = result.output;
 
     // Extract JSON from the response (handle markdown code blocks)
     let jsonString = responseText;
@@ -458,7 +669,10 @@ const generateConversationSummary = async (messages) => {
         };
     }
 
-    return summary;
+    return {
+        summary,
+        meta: result.meta,
+    };
 };
 
 module.exports = {

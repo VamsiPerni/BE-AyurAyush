@@ -551,7 +551,7 @@ const getTodayQueue = async () => {
 
     const appointments = await AppointmentModel.find({
         date: { $gte: todayStart, $lte: todayEnd },
-        status: "confirmed",
+        status: { $in: ["confirmed", "completed"] },
     })
         .populate("patientId", "name email")
         .populate("doctorId", "name")
@@ -563,10 +563,30 @@ const getTodayQueue = async () => {
 
     const queue = normalizedAppointments.map((apt) => ({
         appointmentId: apt._id,
+        status: apt.status,
         tokenNumber: apt.tokenNumber,
         queueStatus: apt.queueStatus || "waiting",
         queueCallCount: apt.queueCallCount || 0,
         lastCalledAt: apt.lastCalledAt,
+        queueNotificationMessage: apt.queueNotificationMessage || "",
+        consultationStartedAt: apt.consultationStartedAt,
+        consultationEndedAt: apt.consultationEndedAt,
+        consultationDurationSeconds: Number.isFinite(
+            Number(apt.consultationDurationSeconds),
+        )
+            ? Number(apt.consultationDurationSeconds)
+            : apt.consultationStartedAt
+              ? Math.max(
+                    0,
+                    Math.floor(
+                        ((apt.consultationEndedAt
+                            ? new Date(apt.consultationEndedAt).getTime()
+                            : Date.now()) -
+                            new Date(apt.consultationStartedAt).getTime()) /
+                            1000,
+                    ),
+                )
+              : null,
         date: apt.date,
         timeSlot: apt.timeSlot,
         patient: {

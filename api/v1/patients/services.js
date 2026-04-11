@@ -94,6 +94,12 @@ const getPatientDashboard = async (userId) => {
             symptoms: apt.symptoms,
             tokenNumber: apt.tokenNumber,
             queueType: apt.queueType,
+            queueStatus:
+                apt.queueStatus ||
+                (apt.status === "confirmed" ? "waiting" : null),
+            queueCallCount: apt.queueCallCount || 0,
+            queueNotificationMessage: apt.queueNotificationMessage || "",
+            lastCalledAt: apt.lastCalledAt,
             doctor: {
                 userId: apt.doctorId?._id,
                 name: apt.doctorId?.name,
@@ -425,34 +431,75 @@ const getPatientAppointments = async (userId, status, query = {}) => {
         doctorProfiles.map((d) => [d.userId.toString(), d]),
     );
 
-    const appointmentsWithDetails = appointments.map((apt) => {
-        const doctor = doctorMap.get(apt.doctorId._id.toString());
+    const activeQueueStatuses = ["waiting", "called", "in_consultation"];
 
-        return {
-            appointmentId: apt._id,
-            status: apt.status,
-            queueStatus: apt.queueStatus,
-            queueCallCount: apt.queueCallCount,
-            lastCalledAt: apt.lastCalledAt,
-            queueNotificationMessage: apt.queueNotificationMessage,
-            urgencyLevel: apt.urgencyLevel,
-            date: apt.date,
-            timeSlot: apt.timeSlot,
-            symptoms: apt.symptoms,
-            doctor: {
-                userId: apt.doctorId._id,
-                name: apt.doctorId.name,
-                email: apt.doctorId.email,
-                phone: apt.doctorId.phone,
-                profilePhoto: apt.doctorId.profilePhoto,
-                specialization: doctor?.specialization,
-                qualification: doctor?.qualification,
-                consultationFee: doctor?.consultationFee,
-            },
-            createdAt: apt.createdAt,
-            adminNotes: apt.adminNotes,
-        };
-    });
+    const getEffectiveTokenSequence = (apt) => {
+        if (Number.isFinite(Number(apt.tokenSequence))) {
+            return Number(apt.tokenSequence);
+        }
+        if (apt.tokenNumber) {
+            const lastPart = String(apt.tokenNumber).split("-").pop();
+            const parsed = Number(lastPart);
+            if (Number.isFinite(parsed)) return parsed;
+        }
+        return null;
+    };
+
+    const appointmentsWithDetails = await Promise.all(
+        appointments.map(async (apt) => {
+            const doctor = doctorMap.get(apt.doctorId._id.toString());
+
+            const effectiveTokenSequence = getEffectiveTokenSequence(apt);
+
+            let queueAheadCount = null;
+            if (apt.status === "confirmed" && effectiveTokenSequence) {
+                queueAheadCount = await AppointmentModel.countDocuments({
+                    doctorId: apt.doctorId,
+                    queueDate: apt.queueDate,
+                    queueType: apt.queueType,
+                    status: "confirmed",
+                    tokenSequence: { $lt: effectiveTokenSequence },
+                    $or: [
+                        { queueStatus: { $in: activeQueueStatuses } },
+                        { queueStatus: null },
+                        { queueStatus: { $exists: false } },
+                    ],
+                });
+            }
+
+            return {
+                appointmentId: apt._id,
+                status: apt.status,
+                queueStatus:
+                    apt.queueStatus ||
+                    (apt.status === "confirmed" ? "waiting" : null),
+                queueCallCount: apt.queueCallCount,
+                lastCalledAt: apt.lastCalledAt,
+                queueNotificationMessage: apt.queueNotificationMessage,
+                queueType: apt.queueType,
+                queueDate: apt.queueDate,
+                tokenNumber: apt.tokenNumber,
+                tokenSequence: effectiveTokenSequence,
+                queueAheadCount,
+                urgencyLevel: apt.urgencyLevel,
+                date: apt.date,
+                timeSlot: apt.timeSlot,
+                symptoms: apt.symptoms,
+                doctor: {
+                    userId: apt.doctorId._id,
+                    name: apt.doctorId.name,
+                    email: apt.doctorId.email,
+                    phone: apt.doctorId.phone,
+                    profilePhoto: apt.doctorId.profilePhoto,
+                    specialization: doctor?.specialization,
+                    qualification: doctor?.qualification,
+                    consultationFee: doctor?.consultationFee,
+                },
+                createdAt: apt.createdAt,
+                adminNotes: apt.adminNotes,
+            };
+        }),
+    );
 
     return {
         count: appointmentsWithDetails.length,
@@ -485,14 +532,46 @@ const getAppointmentDetails = async (userId, appointmentId) => {
         conversationId: appointment.chatConversationId,
     }).select("messages summary");
 
+    const activeQueueStatuses = ["waiting", "called", "in_consultation"];
+    const effectiveTokenSequence = Number.isFinite(
+        Number(appointment.tokenSequence),
+    )
+        ? Number(appointment.tokenSequence)
+        : appointment.tokenNumber
+          ? Number(String(appointment.tokenNumber).split("-").pop())
+          : null;
+
+    let queueAheadCount = null;
+    if (appointment.status === "confirmed" && effectiveTokenSequence) {
+        queueAheadCount = await AppointmentModel.countDocuments({
+            doctorId: appointment.doctorId._id,
+            queueDate: appointment.queueDate,
+            queueType: appointment.queueType,
+            status: "confirmed",
+            tokenSequence: { $lt: effectiveTokenSequence },
+            $or: [
+                { queueStatus: { $in: activeQueueStatuses } },
+                { queueStatus: null },
+                { queueStatus: { $exists: false } },
+            ],
+        });
+    }
+
     return {
         appointment: {
             id: appointment._id,
             status: appointment.status,
-            queueStatus: appointment.queueStatus,
+            queueStatus:
+                appointment.queueStatus ||
+                (appointment.status === "confirmed" ? "waiting" : null),
             queueCallCount: appointment.queueCallCount,
             lastCalledAt: appointment.lastCalledAt,
             queueNotificationMessage: appointment.queueNotificationMessage,
+            queueType: appointment.queueType,
+            queueDate: appointment.queueDate,
+            tokenNumber: appointment.tokenNumber,
+            tokenSequence: effectiveTokenSequence,
+            queueAheadCount,
             urgencyLevel: appointment.urgencyLevel,
             date: appointment.date,
             timeSlot: appointment.timeSlot,

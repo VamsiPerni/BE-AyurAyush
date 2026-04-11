@@ -81,6 +81,18 @@ const appointmentSchema = new Schema(
             default: "",
             maxlength: 500,
         },
+        consultationStartedAt: {
+            type: Date,
+            default: null,
+        },
+        consultationEndedAt: {
+            type: Date,
+            default: null,
+        },
+        consultationDurationSeconds: {
+            type: Number,
+            default: null,
+        },
         treatmentCode: {
             type: String,
             default: null,
