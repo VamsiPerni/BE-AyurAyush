@@ -17,6 +17,7 @@ const {
     getQueueInsights,
     getAppointmentAuditTrail,
     batchDecideAppointments,
+    getEmergencyDelays,
 } = require("./services");
 
 const adminDashboardController = async (req, res, next) => {
@@ -304,6 +305,18 @@ const batchDecideAppointmentsController = async (req, res, next) => {
         next(err);
     }
 };
+const getEmergencyDelaysController = async (req, res, next) => {
+    try {
+        const data = await getEmergencyDelays();
+        res.status(200).json({
+            isSuccess: true,
+            message: "Active emergency delays retrieved",
+            data,
+        });
+    } catch (err) {
+        next(err);
+    }
+};
 
 module.exports = {
     adminDashboardController,
@@ -324,4 +337,5 @@ module.exports = {
     getQueueInsightsController,
     getAppointmentAuditTrailController,
     batchDecideAppointmentsController,
+    getEmergencyDelaysController,
 };

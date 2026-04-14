@@ -14,6 +14,8 @@ const {
     startConsultationController,
     getDoctorProfileController,
     updateDoctorProfileController,
+    activateEmergencyDelayController,
+    deactivateEmergencyDelayController,
 } = require("./controllers");
 const {
     updateDoctorProfileValidator,
@@ -100,6 +102,21 @@ doctorsRouter.put(
     validateDoctorRole,
     updateDoctorProfileValidator,
     updateDoctorProfileController,
+);
+
+// Emergency Delay
+doctorsRouter.post(
+    "/emergency-delay/activate",
+    validateLoggedInUserMiddleware,
+    validateDoctorRole,
+    activateEmergencyDelayController,
+);
+
+doctorsRouter.post(
+    "/emergency-delay/deactivate",
+    validateLoggedInUserMiddleware,
+    validateDoctorRole,
+    deactivateEmergencyDelayController,
 );
 
 module.exports = {

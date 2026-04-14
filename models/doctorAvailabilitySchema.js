@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { Schema, model } = mongoose;
+const { getISTDayBounds } = require("../utils/helpers");
 
 const doctorAvailabiltySchema = new Schema(
     {
@@ -120,11 +121,12 @@ doctorAvailabiltySchema.statics.getBookableSlots = async function (
         return [];
     }
 
+    const { start: dayStart, end: dayEnd } = getISTDayBounds(date);
     const bookedAppointments = await AppointmentModel.find({
         doctorId,
         date: {
-            $gte: new Date(date).setHours(0, 0, 0, 0),
-            $lte: new Date(date).setHours(23, 59, 59, 999),
+            $gte: dayStart,
+            $lte: dayEnd,
         },
         status: { $nin: ["cancelled", "rejected"] },
     }).select("timeSlot");

@@ -17,11 +17,12 @@ const {
     rejectAppointmentController,
     setDoctorAvailabilityController,
     offlineBookAppointmentController,
-    getTodayQueueController,
-    callPatientController,
     getQueueInsightsController,
     getAppointmentAuditTrailController,
     batchDecideAppointmentsController,
+    getEmergencyDelaysController,
+    callPatientController,
+    getTodayQueueController,
 } = require("./controllers");
 const {
     rejectAppointmentValidator,
@@ -87,6 +88,13 @@ adminsRouter.get(
     validateLoggedInUserMiddleware,
     validateIsAdminMiddleware,
     getTodayQueueController,
+);
+
+adminsRouter.get(
+    "/emergency-delays",
+    validateLoggedInUserMiddleware,
+    validateIsAdminMiddleware,
+    getEmergencyDelaysController,
 );
 
 adminsRouter.post(

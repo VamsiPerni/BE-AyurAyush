@@ -55,6 +55,22 @@ const doctorSchema = new Schema(
         verifiedAt: {
             type: Date,
         },
+
+        // -------- Emergency Delay State --------
+        emergencyState: {
+            isActive: {
+                type: Boolean,
+                default: false,
+            },
+            reason: {
+                type: String,
+                default: "",
+            },
+            activatedAt: {
+                type: Date,
+                default: null,
+            },
+        },
     },
     {
         timestamps: true,

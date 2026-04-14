@@ -17,6 +17,8 @@ const {
     calculateWaitingTime,
     generateTokenNumber,
     parsePagination,
+    getISTDateKey,
+    getISTDayBounds,
 } = require("../../../utils/helpers");
 const {
     notifyAppointmentApproved,
@@ -35,7 +37,7 @@ const assignTokenIfMissing = async (appointment) => {
         return appointment;
     }
 
-    const queueDate = new Date(appointment.date).toISOString().slice(0, 10);
+    const queueDate = getISTDateKey(appointment.date);
     const queueType = appointment.queueType || "normal";
     const doctorId = appointment.doctorId?._id || appointment.doctorId;
 
@@ -99,10 +101,7 @@ const appendQueueAudit = (appointment, eventData) => {
 };
 
 const getDashboardStats = async () => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const { start: todayStart, end: todayEnd } = getISTDayBounds();
 
     const [
         totalUsers,
@@ -585,10 +584,7 @@ const getEmergencyAppointments = async (query = {}) => {
 };
 
 const getTodayQueue = async () => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const { start: todayStart, end: todayEnd } = getISTDayBounds();
 
     const appointments = await AppointmentModel.find({
         date: { $gte: todayStart, $lte: todayEnd },
@@ -654,10 +650,7 @@ const getTodayQueue = async () => {
 };
 
 const callTodayQueuePatient = async (appointmentId, adminUserId) => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const { start: todayStart, end: todayEnd } = getISTDayBounds();
 
     const appointment = await AppointmentModel.findOne({
         _id: appointmentId,
@@ -737,10 +730,7 @@ const callTodayQueuePatient = async (appointmentId, adminUserId) => {
 };
 
 const getQueueInsights = async () => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const { start: todayStart, end: todayEnd } = getISTDayBounds();
     const slaThresholdSeconds = 20 * 60;
 
     const appointments = await AppointmentModel.find({
@@ -804,9 +794,10 @@ const getQueueInsights = async () => {
             return null;
         }
 
-        const slotStart = new Date(appointment.date || Date.now());
-        slotStart.setHours(hours, minutes, 0, 0);
-        return slotStart.getTime();
+        const { start: dayStart } = getISTDayBounds(
+            appointment.date || Date.now(),
+        );
+        return dayStart.getTime() + (hours * 60 + minutes) * 60 * 1000;
     };
 
     appointments.forEach((apt) => {
@@ -866,7 +857,9 @@ const getQueueInsights = async () => {
             }
             agg.bottleneckMap.set(slotKey, slotData);
 
-            const notificationHistory = Array.isArray(apt.queueNotificationHistory)
+            const notificationHistory = Array.isArray(
+                apt.queueNotificationHistory,
+            )
                 ? apt.queueNotificationHistory
                 : [];
             notificationHistory.forEach((item) => {
@@ -896,7 +889,9 @@ const getQueueInsights = async () => {
                 ...item,
                 avgWaitSeconds:
                     item.waitingOrCalled > 0
-                        ? Math.floor(item.totalWaitSeconds / item.waitingOrCalled)
+                        ? Math.floor(
+                              item.totalWaitSeconds / item.waitingOrCalled,
+                          )
                         : 0,
             }))
             .sort((a, b) => {
@@ -1489,7 +1484,7 @@ const offlineBookAppointment = async (adminId, bookingData) => {
             );
             appointment = createdAppointments[0];
 
-            const queueDate = new Date(date).toISOString().slice(0, 10);
+            const queueDate = getISTDateKey(date);
             const queueType = appointment.queueType || "normal";
             const tokenDoc = await QueueTokenModel.findOneAndUpdate(
                 { queueDate, doctorId, queueType },
@@ -1523,6 +1518,19 @@ const offlineBookAppointment = async (adminId, bookingData) => {
     };
 };
 
+const getEmergencyDelays = async () => {
+    const doctors = await DoctorModel.find({
+        "emergencyState.isActive": true,
+    }).populate("userId", "name");
+
+    return doctors.map((doc) => ({
+        doctorId: doc.userId._id, // or doc._id, depending on FE usage, let's stick to user ID or doctor internal ID
+        doctorName: doc.userId.name,
+        reason: doc.emergencyState.reason,
+        activatedAt: doc.emergencyState.activatedAt,
+    }));
+};
+
 module.exports = {
     getDashboardStats,
     createDoctorAccountByAdmin,
@@ -1542,4 +1550,5 @@ module.exports = {
     getQueueInsights,
     getAppointmentAuditTrail,
     batchDecideAppointments,
+    getEmergencyDelays,
 };

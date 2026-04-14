@@ -8,6 +8,8 @@ const {
     calculateAge,
     parsePagination,
     generateTokenNumber,
+    getISTDateKey,
+    getISTDayBounds,
 } = require("../../../utils/helpers");
 const logger = require("../../../utils/logger");
 const {
@@ -41,7 +43,10 @@ const deriveQueueMeta = (appointment) => {
     // Reconcile stale state from older records.
     if (appointment.status === "completed") {
         queueStatus = "completed";
-    } else if (appointment.consultationStartedAt && !appointment.consultationEndedAt) {
+    } else if (
+        appointment.consultationStartedAt &&
+        !appointment.consultationEndedAt
+    ) {
         queueStatus = "in_consultation";
     } else if (
         (queueStatus === "waiting" || !queueStatus) &&
@@ -53,7 +58,10 @@ const deriveQueueMeta = (appointment) => {
     if (!queueStatus) {
         if (appointment.status === "completed") {
             queueStatus = "completed";
-        } else if (appointment.consultationStartedAt && !appointment.consultationEndedAt) {
+        } else if (
+            appointment.consultationStartedAt &&
+            !appointment.consultationEndedAt
+        ) {
             queueStatus = "in_consultation";
         } else if (
             appointment.lastCalledAt ||
@@ -97,7 +105,7 @@ const assignTokenIfMissing = async (appointment) => {
         return appointment;
     }
 
-    const queueDate = new Date(appointment.date).toISOString().slice(0, 10);
+    const queueDate = getISTDateKey(appointment.date);
     const queueType = appointment.queueType || "normal";
     const doctorId = appointment.doctorId?._id || appointment.doctorId;
 
@@ -131,10 +139,7 @@ const getDoctorDashboard = async (userId) => {
         });
     }
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const { start: todayStart, end: todayEnd } = getISTDayBounds();
 
     const [
         todayAppointmentsCount,
@@ -213,6 +218,7 @@ const getDoctorDashboard = async (userId) => {
             totalPatients,
         },
         todayAppointments,
+        emergencyState: doctor.emergencyState,
         createdAt: doctor.createdAt,
     };
 };
@@ -232,9 +238,10 @@ const getDoctorAppointments = async (
 
     if (status) query.status = status;
     if (date) {
+        const { start: dayStart, end: dayEnd } = getISTDayBounds(date);
         query.date = {
-            $gte: new Date(date).setHours(0, 0, 0, 0),
-            $lte: new Date(date).setHours(23, 59, 59, 999),
+            $gte: dayStart,
+            $lte: dayEnd,
         };
     }
 
@@ -315,10 +322,7 @@ const getDoctorAppointments = async (
 };
 
 const getTodayAppointments = async (userId) => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const { start: todayStart, end: todayEnd } = getISTDayBounds();
 
     const appointments = await AppointmentModel.find({
         doctorId: userId,
@@ -379,9 +383,12 @@ const getTodayAppointments = async (userId) => {
         };
     });
 
+    const doctor = await DoctorModel.findOne({ userId });
+
     return {
-        date: new Date().toISOString().split("T")[0],
+        date: getISTDateKey(new Date()),
         totalCount: appointmentsWithDetails.length,
+        emergencyState: doctor?.emergencyState,
         appointments: appointmentsWithDetails.sort((a, b) => {
             const aSeq = Number.isFinite(Number(a.tokenSequence))
                 ? Number(a.tokenSequence)
@@ -458,10 +465,7 @@ const updateQueueCallState = async (appointment, doctorName, doctorUserId) => {
 };
 
 const callTodayQueuePatient = async (userId, appointmentId) => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const { start: todayStart, end: todayEnd } = getISTDayBounds();
 
     const [appointment, doctor] = await Promise.all([
         AppointmentModel.findOne({
@@ -484,10 +488,7 @@ const callTodayQueuePatient = async (userId, appointmentId) => {
 };
 
 const callNextQueuePatient = async (userId) => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const { start: todayStart, end: todayEnd } = getISTDayBounds();
 
     const [doctor, appointments] = await Promise.all([
         UserModel.findById(userId).select("name"),
@@ -517,10 +518,7 @@ const callNextQueuePatient = async (userId) => {
 };
 
 const startConsultation = async (userId, appointmentId) => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const { start: todayStart, end: todayEnd } = getISTDayBounds();
 
     const appointment = await AppointmentModel.findOne({
         _id: appointmentId,
@@ -792,6 +790,50 @@ const updateDoctorProfile = async (userId, updates) => {
     };
 };
 
+const activateEmergencyDelay = async (userId, reason) => {
+    const doctor = await DoctorModel.findOneAndUpdate(
+        { userId },
+        {
+            $set: {
+                "emergencyState.isActive": true,
+                "emergencyState.reason": reason || "Handling a critical case",
+                "emergencyState.activatedAt": new Date(),
+            },
+        },
+        { new: true },
+    );
+
+    if (!doctor) {
+        const err = new Error("Doctor profile not found");
+        err.statusCode = 404;
+        throw err;
+    }
+
+    return doctor.emergencyState;
+};
+
+const deactivateEmergencyDelay = async (userId) => {
+    const doctor = await DoctorModel.findOneAndUpdate(
+        { userId },
+        {
+            $set: {
+                "emergencyState.isActive": false,
+                "emergencyState.reason": "",
+                "emergencyState.activatedAt": null,
+            },
+        },
+        { new: true },
+    );
+
+    if (!doctor) {
+        const err = new Error("Doctor profile not found");
+        err.statusCode = 404;
+        throw err;
+    }
+
+    return doctor.emergencyState;
+};
+
 module.exports = {
     getDoctorDashboard,
     getDoctorAppointments,
@@ -803,4 +845,6 @@ module.exports = {
     startConsultation,
     getDoctorProfile,
     updateDoctorProfile,
+    activateEmergencyDelay,
+    deactivateEmergencyDelay,
 };

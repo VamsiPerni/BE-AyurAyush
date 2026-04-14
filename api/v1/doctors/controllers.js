@@ -9,6 +9,8 @@ const {
     startConsultation,
     getDoctorProfile,
     updateDoctorProfile,
+    activateEmergencyDelay,
+    deactivateEmergencyDelay,
 } = require("./services");
 const logger = require("../../../utils/logger");
 
@@ -202,6 +204,39 @@ const updateDoctorProfileController = async (req, res, next) => {
     }
 };
 
+const activateEmergencyDelayController = async (req, res, next) => {
+    try {
+        const { reason } = req.body;
+        const data = await activateEmergencyDelay(req.currentDoctor.userId, reason);
+        res.status(200).json({
+            isSuccess: true,
+            message: "Emergency delay activated",
+            data,
+        });
+    } catch (err) {
+        logger.error("Error in activateEmergencyDelayController", {
+            error: err.message,
+        });
+        next(err);
+    }
+};
+
+const deactivateEmergencyDelayController = async (req, res, next) => {
+    try {
+        const data = await deactivateEmergencyDelay(req.currentDoctor.userId);
+        res.status(200).json({
+            isSuccess: true,
+            message: "Emergency delay deactivated",
+            data,
+        });
+    } catch (err) {
+        logger.error("Error in deactivateEmergencyDelayController", {
+            error: err.message,
+        });
+        next(err);
+    }
+};
+
 module.exports = {
     doctorDashboardController,
     getDoctorAppointmentsController,
@@ -213,4 +248,6 @@ module.exports = {
     startConsultationController,
     getDoctorProfileController,
     updateDoctorProfileController,
+    activateEmergencyDelayController,
+    deactivateEmergencyDelayController,
 };
