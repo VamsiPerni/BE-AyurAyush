@@ -334,7 +334,7 @@ const getDoctorDashboard = async (userId, { page = 1, limit = 5 } = {}) => {
 
 const getDoctorAppointments = async (
     userId,
-    { status, date, page: rawPage, limit: rawLimit },
+    { status, date, urgencyLevel, patientName, page: rawPage, limit: rawLimit },
 ) => {
     const { page, limit, skip } = parsePagination({
         page: rawPage,
@@ -346,12 +346,10 @@ const getDoctorAppointments = async (
     };
 
     if (status) query.status = status;
+    if (urgencyLevel && urgencyLevel !== "all") query.urgencyLevel = urgencyLevel;
     if (date) {
         const { start: dayStart, end: dayEnd } = getISTDayBounds(date);
-        query.date = {
-            $gte: dayStart,
-            $lte: dayEnd,
-        };
+        query.date = { $gte: dayStart, $lte: dayEnd };
     }
 
     const [appointments, totalCount] = await Promise.all([
@@ -378,7 +376,7 @@ const getDoctorAppointments = async (
         patientProfiles.map((p) => [p.userId.toString(), p]),
     );
 
-    const appointmentsWithDetails = appointments.map((apt) => {
+    let appointmentsWithDetails = appointments.map((apt) => {
         const patientData = getPatientDisplayData(apt);
         const patientProfile = patientData.id
             ? profileMap.get(String(patientData.id))
@@ -424,6 +422,14 @@ const getDoctorAppointments = async (
         };
     });
 
+    // Apply patient name search after populate (MongoDB text search on ref fields requires this)
+    if (patientName && patientName.trim()) {
+        const q = patientName.trim().toLowerCase();
+        appointmentsWithDetails = appointmentsWithDetails.filter((a) =>
+            (a.patient?.name || "").toLowerCase().includes(q),
+        );
+    }
+
     const emergencyAppointments = appointmentsWithDetails.filter(
         (a) => a.urgencyLevel === "emergency",
     );
@@ -432,13 +438,16 @@ const getDoctorAppointments = async (
     );
 
     return {
-        totalCount,
+        totalCount: patientName ? appointmentsWithDetails.length : totalCount,
         page,
-        totalPages: Math.ceil(totalCount / limit),
+        totalPages: patientName
+            ? Math.ceil(appointmentsWithDetails.length / limit)
+            : Math.ceil(totalCount / limit),
         emergencyCount: emergencyAppointments.length,
         normalCount: normalAppointments.length,
         emergencyAppointments,
         normalAppointments,
+        appointments: appointmentsWithDetails,
     };
 };
 

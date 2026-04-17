@@ -41,10 +41,12 @@ const doctorDashboardController = async (req, res, next) => {
 
 const getDoctorAppointmentsController = async (req, res, next) => {
     try {
-        const { status, date, page, limit } = req.query;
+        const { status, date, urgencyLevel, patientName, page, limit } = req.query;
         const data = await getDoctorAppointments(req.currentDoctor.userId, {
             status,
             date,
+            urgencyLevel,
+            patientName,
             page,
             limit,
         });

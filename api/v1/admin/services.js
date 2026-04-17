@@ -30,6 +30,8 @@ const {
     notifyAppointmentRejected,
     notifyDoctorOnboarded,
     notifyPatientTurnCalled,
+    notifyAppointmentOverdue,
+    notifyPatientNotAttended,
 } = require("../../../utils/appointmentNotifications");
 const logger = require("../../../utils/logger");
 
@@ -344,9 +346,11 @@ const rejectDoctorApplication = async (applicationId, adminUserId) => {
 
 const getPendingNormalAppointments = async (query = {}) => {
     const { page, limit, skip } = parsePagination(query);
+    const { start: todayStart } = getISTDayBounds();
     const filter = {
         status: "pending_admin_approval",
         urgencyLevel: "normal",
+        date: { $gte: todayStart },
     };
 
     const [appointments, totalCount] = await Promise.all([
@@ -489,9 +493,11 @@ const getPendingNormalAppointments = async (query = {}) => {
 
 const getEmergencyAppointments = async (query = {}) => {
     const { page, limit, skip } = parsePagination(query);
+    const { start: todayStart } = getISTDayBounds();
     const filter = {
         status: "pending_admin_approval",
         urgencyLevel: "emergency",
+        date: { $gte: todayStart },
     };
 
     const [appointments, totalCount] = await Promise.all([
@@ -1934,6 +1940,319 @@ const offlineBookAppointment = async (adminId, bookingData) => {
     };
 };
 
+const getOverdueAppointments = async (query = {}) => {
+    const { start: todayStart } = getISTDayBounds();
+    const { page, limit, skip } = parsePagination(query);
+
+    const filter = {
+        status: "pending_admin_approval",
+        date: { $lt: todayStart },
+    };
+
+    const [appointments, totalCount] = await Promise.all([
+        AppointmentModel.find(filter)
+            .sort({ date: 1, createdAt: 1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+        AppointmentModel.countDocuments(filter),
+    ]);
+
+    const patientIds = appointments.map((a) => (a.patientId || "").toString()).filter(Boolean);
+    const doctorIds = appointments.map((a) => (a.doctorId || "").toString()).filter(Boolean);
+
+    const [patientUsers, doctorUsers, payments] = await Promise.all([
+        UserModel.find({ _id: { $in: patientIds } }).select("name email").lean(),
+        UserModel.find({ _id: { $in: doctorIds } }).select("name").lean(),
+        PaymentModel.find({ appointmentId: { $in: appointments.map((a) => a._id) } })
+            .select("appointmentId status amount")
+            .lean(),
+    ]);
+
+    const patientMap = new Map(patientUsers.map((u) => [u._id.toString(), u]));
+    const doctorMap = new Map(doctorUsers.map((u) => [u._id.toString(), u]));
+    const paymentMap = new Map(payments.map((p) => [p.appointmentId.toString(), p]));
+
+    const result = appointments.map((apt) => {
+        const patient = patientMap.get((apt.patientId || "").toString());
+        const doctor = doctorMap.get((apt.doctorId || "").toString());
+        const payment = paymentMap.get(apt._id.toString());
+        return {
+            appointmentId: apt._id,
+            date: apt.date,
+            timeSlot: apt.timeSlot,
+            urgencyLevel: apt.urgencyLevel,
+            createdAt: apt.createdAt,
+            patientName: patient?.name || "Unknown",
+            patientEmail: patient?.email || null,
+            doctorName: doctor?.name || "Unassigned",
+            payment: payment ? { status: payment.status, amount: payment.amount ? Number((payment.amount / 100).toFixed(2)) : null } : null,
+        };
+    });
+
+    return { count: result.length, totalCount, page, totalPages: Math.ceil(totalCount / limit), appointments: result };
+};
+
+const cancelOverdueAppointments = async (adminUserId) => {
+    const { start: todayStart } = getISTDayBounds();
+
+    const overdueAppointments = await AppointmentModel.find({
+        status: "pending_admin_approval",
+        date: { $lt: todayStart },
+    }).lean();
+
+    if (overdueAppointments.length === 0) {
+        return { cancelled: 0, refunded: 0, notified: 0 };
+    }
+
+    const appointmentIds = overdueAppointments.map((a) => a._id);
+    const patientIds = overdueAppointments.map((a) => (a.patientId || "").toString()).filter(Boolean);
+    const doctorIds = overdueAppointments.map((a) => (a.doctorId || "").toString()).filter(Boolean);
+
+    const [patientUsers, doctorUsers, paidPayments] = await Promise.all([
+        UserModel.find({ _id: { $in: patientIds } }).select("name email").lean(),
+        UserModel.find({ _id: { $in: doctorIds } }).select("name").lean(),
+        PaymentModel.find({ appointmentId: { $in: appointmentIds }, status: "paid", refundStatus: "none" }),
+    ]);
+
+    const patientMap = new Map(patientUsers.map((u) => [u._id.toString(), u]));
+    const doctorMap = new Map(doctorUsers.map((u) => [u._id.toString(), u]));
+    const paymentMap = new Map(paidPayments.map((p) => [p.appointmentId.toString(), p]));
+
+    // Bulk cancel all overdue appointments
+    await AppointmentModel.updateMany(
+        { _id: { $in: appointmentIds } },
+        {
+            $set: { status: "cancelled", adminNotes: "Cancelled — appointment date passed without admin review" },
+            $push: {
+                queueAuditTrail: {
+                    at: new Date(),
+                    event: "overdue_cancelled",
+                    fromStatus: "pending_admin_approval",
+                    toStatus: "cancelled",
+                    actorRole: "admin",
+                    actorId: adminUserId,
+                    note: "Cancelled by admin — request expired past appointment date",
+                },
+            },
+        },
+    );
+
+    let refunded = 0;
+    // Auto-refund paid ones
+    for (const payment of paidPayments) {
+        try {
+            const refund = await razorpay.payments.refund(payment.razorpayPaymentId, {
+                amount: payment.amount,
+                notes: { reason: "Appointment expired — admin did not review in time", appointmentId: payment.appointmentId.toString() },
+            });
+            payment.refundId = refund.id;
+            payment.refundAmount = refund.amount;
+            payment.refundStatus = "initiated";
+            payment.refundReason = "Appointment expired — admin did not review in time";
+            payment.refundInitiatedAt = new Date();
+            await payment.save();
+            refunded++;
+            logger.info("Auto-refund initiated for overdue appointment", { appointmentId: payment.appointmentId, refundId: refund.id });
+        } catch (refundErr) {
+            logger.error("Auto-refund failed for overdue appointment", { appointmentId: payment.appointmentId, error: refundErr.message });
+        }
+    }
+
+    // Fire-and-forget apology emails
+    let notified = 0;
+    for (const apt of overdueAppointments) {
+        const patient = patientMap.get((apt.patientId || "").toString());
+        const doctor = doctorMap.get((apt.doctorId || "").toString());
+        const payment = paymentMap.get(apt._id.toString());
+        if (patient?.email) {
+            notifyAppointmentOverdue(patient.email, {
+                doctorName: doctor?.name || "Doctor",
+                date: apt.date,
+                timeSlot: apt.timeSlot,
+                refundInitiated: !!payment,
+            });
+            notified++;
+        }
+    }
+
+    return { cancelled: overdueAppointments.length, refunded, notified };
+};
+
+const getPastAppointments = async (query = {}) => {
+    const { start: todayStart } = getISTDayBounds();
+    const { page, limit, skip } = parsePagination(query);
+
+    const filter = {
+        status: { $in: ["confirmed", "completed"] },
+        date: { $lt: todayStart },
+    };
+
+    if (query.attended === "true") filter.queueStatus = "completed";
+    if (query.attended === "false") filter.queueStatus = { $in: ["waiting", "called"] };
+    if (query.from || query.to) {
+        filter.date = { $lt: todayStart };
+        if (query.from) filter.date.$gte = new Date(query.from);
+        if (query.to) {
+            const to = new Date(query.to);
+            to.setHours(23, 59, 59, 999);
+            filter.date.$lte = to;
+        }
+    }
+
+    const [appointments, totalCount] = await Promise.all([
+        AppointmentModel.find(filter)
+            .sort({ date: -1, timeSlot: -1, createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+        AppointmentModel.countDocuments(filter),
+    ]);
+
+    const patientIds = [...new Set(appointments.map((a) => (a.patientId || "").toString()).filter(Boolean))];
+    const doctorIds  = [...new Set(appointments.map((a) => (a.doctorId  || "").toString()).filter(Boolean))];
+
+    const [patientUsers, doctorUsers, payments] = await Promise.all([
+        UserModel.find({ _id: { $in: patientIds } }).select("name email").lean(),
+        UserModel.find({ _id: { $in: doctorIds  } }).select("name").lean(),
+        PaymentModel.find({ appointmentId: { $in: appointments.map((a) => a._id) } })
+            .select("appointmentId status amount refundStatus refundAmount razorpayPaymentId")
+            .lean(),
+    ]);
+
+    const patientMap = new Map(patientUsers.map((u) => [u._id.toString(), u]));
+    const doctorMap  = new Map(doctorUsers.map((u)  => [u._id.toString(), u]));
+    const paymentMap = new Map(payments.map((p) => [p.appointmentId.toString(), p]));
+
+    const result = appointments.map((apt) => {
+        const patient = patientMap.get((apt.patientId || "").toString());
+        const doctor  = doctorMap.get((apt.doctorId  || "").toString());
+        const payment = paymentMap.get(apt._id.toString());
+        const attended = apt.queueStatus === "completed";
+        return {
+            appointmentId: apt._id,
+            date: apt.date,
+            timeSlot: apt.timeSlot,
+            urgencyLevel: apt.urgencyLevel,
+            queueStatus: apt.queueStatus,
+            attended,
+            createdAt: apt.createdAt,
+            patientName: patient?.name || "Unknown",
+            patientEmail: patient?.email || null,
+            doctorName: doctor?.name || "Unassigned",
+            payment: payment ? {
+                status: payment.status,
+                amount: payment.amount ? Number((payment.amount / 100).toFixed(2)) : null,
+                refundStatus: payment.refundStatus,
+                refundAmount: payment.refundAmount ? Number((payment.refundAmount / 100).toFixed(2)) : null,
+            } : null,
+        };
+    });
+
+    const attendedCount    = result.filter((r) => r.attended).length;
+    const notAttendedCount = result.filter((r) => !r.attended).length;
+
+    return {
+        count: result.length,
+        totalCount,
+        page,
+        totalPages: Math.ceil(totalCount / limit),
+        attendedCount,
+        notAttendedCount,
+        appointments: result,
+    };
+};
+
+const markNoShowAndRefund = async (adminUserId, appointmentId, reason) => {
+    const appointment = await AppointmentModel.findById(appointmentId);
+
+    if (!appointment) {
+        const err = new Error("Appointment not found");
+        err.statusCode = 404;
+        throw err;
+    }
+
+    if (appointment.status !== "confirmed") {
+        const err = new Error("Only confirmed appointments can be marked as no-show");
+        err.statusCode = 400;
+        throw err;
+    }
+
+    const { start: todayStart } = getISTDayBounds();
+    if (appointment.date >= todayStart) {
+        const err = new Error("Cannot mark a future or today's appointment as no-show");
+        err.statusCode = 400;
+        throw err;
+    }
+
+    appendQueueAudit(appointment, {
+        event: "no_show_cancelled",
+        fromStatus: appointment.status,
+        toStatus: "cancelled",
+        actorRole: "admin",
+        actorId: adminUserId,
+        note: reason || "Patient did not attend — marked no-show by admin",
+    });
+
+    appointment.status = "cancelled";
+    appointment.adminNotes = reason || "Patient did not attend — marked no-show by admin";
+    await appointment.save();
+
+    // Auto-refund if paid
+    const payment = await PaymentModel.findOne({
+        appointmentId,
+        status: "paid",
+        refundStatus: "none",
+    });
+
+    let refundInitiated = false;
+    if (payment) {
+        try {
+            const refund = await razorpay.payments.refund(payment.razorpayPaymentId, {
+                amount: payment.amount,
+                notes: {
+                    reason: reason || "Patient no-show",
+                    appointmentId: appointmentId.toString(),
+                    adminId: adminUserId.toString(),
+                },
+            });
+            payment.refundId = refund.id;
+            payment.refundAmount = refund.amount;
+            payment.refundStatus = "initiated";
+            payment.refundReason = reason || "Patient no-show";
+            payment.refundInitiatedAt = new Date();
+            await payment.save();
+            refundInitiated = true;
+            logger.info("Refund initiated for no-show", { appointmentId, refundId: refund.id });
+        } catch (refundErr) {
+            logger.error("Refund failed for no-show", { appointmentId, error: refundErr.message });
+        }
+    }
+
+    // Fetch patient and doctor for email
+    const [patientUser, doctorUser] = await Promise.all([
+        UserModel.findById(appointment.patientId).select("name email"),
+        UserModel.findById(appointment.doctorId).select("name"),
+    ]);
+
+    if (patientUser?.email) {
+        notifyPatientNotAttended(patientUser.email, {
+            patientName: patientUser.name,
+            doctorName: doctorUser?.name || "Doctor",
+            date: appointment.date,
+            timeSlot: appointment.timeSlot,
+            refundInitiated,
+        });
+    }
+
+    return {
+        appointmentId: appointment._id,
+        status: appointment.status,
+        refundInitiated,
+        reason,
+    };
+};
+
 const getEmergencyDelays = async () => {
     const doctors = await DoctorModel.find({
         "emergencyState.isActive": true,
@@ -1971,4 +2290,8 @@ module.exports = {
     setDoctorAvailabilityForDateByAdmin,
     addDoctorAvailabilitySlotForDateByAdmin,
     removeDoctorAvailabilitySlotForDateByAdmin,
+    getOverdueAppointments,
+    cancelOverdueAppointments,
+    getPastAppointments,
+    markNoShowAndRefund,
 };

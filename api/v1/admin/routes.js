@@ -29,6 +29,10 @@ const {
     getEmergencyDelaysController,
     callPatientController,
     getTodayQueueController,
+    getOverdueAppointmentsController,
+    cancelOverdueAppointmentsController,
+    getPastAppointmentsController,
+    markNoShowController,
 } = require("./controllers");
 const {
     rejectAppointmentValidator,
@@ -213,6 +217,38 @@ adminsRouter.post(
     checkPermission("offlineBooking"),
     offlineBookValidator,
     offlineBookAppointmentController,
+);
+
+adminsRouter.get(
+    "/appointments/overdue",
+    validateLoggedInUserMiddleware,
+    validateAnyAdminMiddleware,
+    checkPermission("approveAppointments"),
+    getOverdueAppointmentsController,
+);
+
+adminsRouter.post(
+    "/appointments/overdue/cancel-all",
+    validateLoggedInUserMiddleware,
+    validateAnyAdminMiddleware,
+    checkPermission("approveAppointments"),
+    cancelOverdueAppointmentsController,
+);
+
+adminsRouter.get(
+    "/appointments/past",
+    validateLoggedInUserMiddleware,
+    validateAnyAdminMiddleware,
+    checkPermission("viewQueues"),
+    getPastAppointmentsController,
+);
+
+adminsRouter.post(
+    "/appointments/:appointmentId/no-show",
+    validateLoggedInUserMiddleware,
+    validateAnyAdminMiddleware,
+    checkPermission("approveAppointments"),
+    markNoShowController,
 );
 
 // Audit trail + emergency delays — any admin
