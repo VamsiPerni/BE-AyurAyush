@@ -7,6 +7,8 @@ const {
 const { PatientModel } = require("../../../models/patientSchema");
 const { QueueTokenModel } = require("../../../models/queueTokenSchema");
 const { UserModel } = require("../../../models/userSchema");
+const { PaymentModel } = require("../../../models/paymentSchema");
+const { razorpay } = require("../../../utils/razorpayInstance");
 const {
     calculateAge,
     parsePagination,
@@ -18,6 +20,7 @@ const logger = require("../../../utils/logger");
 const {
     notifyAppointmentCompleted,
     notifyPatientTurnCalled,
+    notifyPatientNotAttended,
 } = require("../../../utils/appointmentNotifications");
 
 const getConsultationDurationSeconds = (appointment) => {
@@ -334,7 +337,7 @@ const getDoctorDashboard = async (userId, { page = 1, limit = 5 } = {}) => {
 
 const getDoctorAppointments = async (
     userId,
-    { status, date, urgencyLevel, patientName, page: rawPage, limit: rawLimit },
+    { status, date, urgencyLevel, patientName, page: rawPage, limit: rawLimit, pastOnly },
 ) => {
     const { page, limit, skip } = parsePagination({
         page: rawPage,
@@ -342,12 +345,26 @@ const getDoctorAppointments = async (
     });
     const query = {
         doctorId: userId,
-        status: { $nin: ["rejected"] },
+        status: { $nin: ["rejected", "pending_admin_approval", "pending_payment"] },
     };
 
     if (status) query.status = status;
     if (urgencyLevel && urgencyLevel !== "all") query.urgencyLevel = urgencyLevel;
-    if (date) {
+
+    if (pastOnly === "true" || pastOnly === true) {
+        // not_closed tab: past confirmed only
+        const { start: todayStart } = getISTDayBounds();
+        query.date = { $lt: todayStart };
+    } else if (status === "confirmed") {
+        // confirmed tab: today + future only
+        const { start: todayStart } = getISTDayBounds();
+        query.date = { $gte: todayStart };
+        // allow date filter to narrow further within future range
+        if (date) {
+            const { start: dayStart, end: dayEnd } = getISTDayBounds(date);
+            query.date = { $gte: dayStart, $lte: dayEnd };
+        }
+    } else if (date) {
         const { start: dayStart, end: dayEnd } = getISTDayBounds(date);
         query.date = { $gte: dayStart, $lte: dayEnd };
     }
@@ -359,7 +376,7 @@ const getDoctorAppointments = async (
                 "emergencyPatientId",
                 "displayName phone conditionSummary wardLocation",
             )
-            .sort({ date: 1, timeSlot: 1 })
+            .sort({ date: status === "completed" ? -1 : 1, timeSlot: 1 })
             .skip(skip)
             .limit(limit),
         AppointmentModel.countDocuments(query),
@@ -1109,8 +1126,8 @@ const normalizeDateInput = (dateLike) => {
         err.statusCode = 400;
         throw err;
     }
-    date.setHours(0, 0, 0, 0);
-    return date;
+    const { start } = getISTDayBounds(date);
+    return start;
 };
 
 const normalizeSlotString = (slot) => {
@@ -1144,9 +1161,8 @@ const getOrCreateAvailability = async (userId) => {
 };
 
 const ensureFutureDate = (date) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (date < today) {
+    const { start: todayStart } = getISTDayBounds();
+    if (date < todayStart) {
         const err = new Error("You can only manage upcoming dates");
         err.statusCode = 400;
         throw err;
@@ -1331,6 +1347,84 @@ const removeOwnAvailabilitySlotForDate = async (userId, payload) => {
     });
 };
 
+const markNoShowByDoctor = async (doctorUserId, appointmentId) => {
+    const { start: todayStart } = getISTDayBounds();
+
+    const appointment = await AppointmentModel.findOne({
+        _id: appointmentId,
+        doctorId: doctorUserId,
+        status: "confirmed",
+        date: { $lt: todayStart },
+    });
+
+    if (!appointment) {
+        const err = new Error("Past confirmed appointment not found for this doctor");
+        err.statusCode = 404;
+        throw err;
+    }
+
+    appendQueueAudit(appointment, {
+        event: "no_show_cancelled",
+        fromStatus: "confirmed",
+        toStatus: "cancelled",
+        actorRole: "doctor",
+        actorId: doctorUserId,
+        note: "Patient did not attend — marked no-show by doctor",
+    });
+
+    appointment.status = "cancelled";
+    appointment.adminNotes = "Patient did not attend — marked no-show by doctor";
+    await appointment.save();
+
+    // Auto-refund if paid
+    const payment = await PaymentModel.findOne({
+        appointmentId,
+        status: "paid",
+        refundStatus: "none",
+    });
+
+    let refundInitiated = false;
+    if (payment) {
+        try {
+            const refund = await razorpay.payments.refund(payment.razorpayPaymentId, {
+                amount: payment.amount,
+                notes: {
+                    reason: "Patient no-show",
+                    appointmentId: appointmentId.toString(),
+                    doctorId: doctorUserId.toString(),
+                },
+            });
+            payment.refundId = refund.id;
+            payment.refundAmount = refund.amount;
+            payment.refundStatus = "initiated";
+            payment.refundReason = "Patient no-show — marked by doctor";
+            payment.refundInitiatedAt = new Date();
+            await payment.save();
+            refundInitiated = true;
+            logger.info("Auto-refund initiated for doctor no-show", { appointmentId, refundId: refund.id });
+        } catch (refundErr) {
+            logger.error("Auto-refund failed for doctor no-show", { appointmentId, error: refundErr.message });
+        }
+    }
+
+    const [patientUser, doctorUser] = await Promise.all([
+        UserModel.findById(appointment.patientId).select("name email"),
+        UserModel.findById(doctorUserId).select("name"),
+    ]);
+
+    if (patientUser?.email) {
+        notifyPatientNotAttended(patientUser.email, {
+            patientName: patientUser.name,
+            doctorName: doctorUser?.name || "Doctor",
+            date: appointment.date,
+            timeSlot: appointment.timeSlot,
+            refundInitiated,
+        });
+    }
+
+    return { appointmentId: appointment._id, status: appointment.status, refundInitiated };
+};
+
 module.exports = {
     getDoctorDashboard,
     getDoctorAppointments,
@@ -1352,4 +1446,5 @@ module.exports = {
     deactivateEmergencyDelay,
     getCustomReferences,
     addCustomReference,
+    markNoShowByDoctor,
 };

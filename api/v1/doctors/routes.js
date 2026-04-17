@@ -24,6 +24,7 @@ const {
     setOwnAvailabilityForDateController,
     addOwnAvailabilitySlotForDateController,
     removeOwnAvailabilitySlotForDateController,
+    markNoShowByDoctorController,
 } = require("./controllers");
 const {
     updateDoctorProfileValidator,
@@ -101,6 +102,14 @@ doctorsRouter.post(
     validateDoctorRole,
     completeAppointmentValidator,
     completeAppointmentController,
+);
+
+// Mark no-show (past confirmed appointment patient did not attend)
+doctorsRouter.post(
+    "/appointments/:appointmentId/no-show",
+    validateLoggedInUserMiddleware,
+    validateDoctorRole,
+    markNoShowByDoctorController,
 );
 
 // Get doctor profile

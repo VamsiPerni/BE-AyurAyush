@@ -140,9 +140,18 @@ const deactivateSubAdmin = async (profileId) => {
 
 const getSuperAdminDashboard = async () => {
     const { start: todayStart, end: todayEnd } = getISTDayBounds();
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
+    const { year, month } = (() => {
+        const parts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Asia/Kolkata",
+            year: "numeric", month: "2-digit",
+        }).formatToParts(new Date());
+        return {
+            year: Number(parts.find((p) => p.type === "year")?.value),
+            month: Number(parts.find((p) => p.type === "month")?.value) - 1,
+        };
+    })();
+    // IST month start = UTC equivalent of IST 1st of month 00:00
+    const monthStart = new Date(Date.UTC(year, month, 1, 0, 0, 0) - 330 * 60 * 1000);
 
     const [
         totalUsers,

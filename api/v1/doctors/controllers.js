@@ -19,6 +19,7 @@ const {
     setOwnAvailabilityForDate,
     addOwnAvailabilitySlotForDate,
     removeOwnAvailabilitySlotForDate,
+    markNoShowByDoctor,
 } = require("./services");
 const logger = require("../../../utils/logger");
 
@@ -41,7 +42,7 @@ const doctorDashboardController = async (req, res, next) => {
 
 const getDoctorAppointmentsController = async (req, res, next) => {
     try {
-        const { status, date, urgencyLevel, patientName, page, limit } = req.query;
+        const { status, date, urgencyLevel, patientName, page, limit, pastOnly } = req.query;
         const data = await getDoctorAppointments(req.currentDoctor.userId, {
             status,
             date,
@@ -49,6 +50,7 @@ const getDoctorAppointmentsController = async (req, res, next) => {
             patientName,
             page,
             limit,
+            pastOnly,
         });
         res.status(200).json({
             isSuccess: true,
@@ -404,6 +406,21 @@ const addCustomReferenceController = async (req, res, next) => {
     }
 };
 
+const markNoShowByDoctorController = async (req, res, next) => {
+    try {
+        const { appointmentId } = req.params;
+        const data = await markNoShowByDoctor(req.currentDoctor.userId, appointmentId);
+        res.status(200).json({
+            isSuccess: true,
+            message: `Appointment marked as no-show.${data.refundInitiated ? " Refund initiated." : ""} Patient notified.`,
+            data,
+        });
+    } catch (err) {
+        logger.error("Error in markNoShowByDoctorController", { error: err.message });
+        next(err);
+    }
+};
+
 module.exports = {
     doctorDashboardController,
     getDoctorAppointmentsController,
@@ -425,4 +442,5 @@ module.exports = {
     setOwnAvailabilityForDateController,
     addOwnAvailabilitySlotForDateController,
     removeOwnAvailabilitySlotForDateController,
+    markNoShowByDoctorController,
 };

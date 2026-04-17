@@ -1399,8 +1399,8 @@ const normalizeDateInput = (dateLike) => {
         err.statusCode = 400;
         throw err;
     }
-    date.setHours(0, 0, 0, 0);
-    return date;
+    const { start } = getISTDayBounds(date);
+    return start;
 };
 
 const normalizeSlotString = (slot) => {
@@ -1447,9 +1447,8 @@ const getOrCreateAvailabilityForDoctor = async (doctorId, adminUserId) => {
 };
 
 const ensureFutureDate = (date) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (date < today) {
+    const { start: todayStart } = getISTDayBounds();
+    if (date < todayStart) {
         const err = new Error("You can only manage upcoming dates");
         err.statusCode = 400;
         throw err;
