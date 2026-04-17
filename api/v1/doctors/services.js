@@ -185,7 +185,7 @@ const buildSlotCountMap = (appointments) => {
     return map;
 };
 
-const getDoctorDashboard = async (userId) => {
+const getDoctorDashboard = async (userId, { page = 1, limit = 5 } = {}) => {
     let doctor = await DoctorModel.findOne({ userId });
 
     if (!doctor) {
@@ -198,6 +198,7 @@ const getDoctorDashboard = async (userId) => {
     }
 
     const { start: todayStart, end: todayEnd } = getISTDayBounds();
+    const skip = (Number(page) - 1) * Number(limit);
 
     const [
         todayAppointmentsCount,
@@ -238,7 +239,8 @@ const getDoctorDashboard = async (userId) => {
             .populate("patientId", "name")
             .populate("emergencyPatientId", "displayName")
             .sort({ timeSlot: 1, createdAt: 1 })
-            .limit(10),
+            .skip(skip)
+            .limit(Number(limit)),
     ]);
 
     const totalPatients = totalPatientsAgg[0]?.count || 0;
@@ -322,6 +324,9 @@ const getDoctorDashboard = async (userId) => {
             totalPatients,
         },
         todayAppointments,
+        todayTotalCount: todayAppointmentsCount,
+        todayPage: Number(page),
+        todayTotalPages: Math.ceil(todayAppointmentsCount / Number(limit)),
         emergencyState: doctor.emergencyState,
         createdAt: doctor.createdAt,
     };

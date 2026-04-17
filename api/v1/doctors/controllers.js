@@ -24,7 +24,8 @@ const logger = require("../../../utils/logger");
 
 const doctorDashboardController = async (req, res, next) => {
     try {
-        const data = await getDoctorDashboard(req.currentDoctor.userId);
+        const { page, limit } = req.query;
+        const data = await getDoctorDashboard(req.currentDoctor.userId, { page, limit });
         res.status(200).json({
             isSuccess: true,
             message: "Doctor dashboard loaded successfully",
