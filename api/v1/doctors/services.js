@@ -875,9 +875,10 @@ const completeAppointment = async (
     if (appointment.patientId) {
         const patientUser = await UserModel.findById(
             appointment.patientId,
-        ).select("email");
+        ).select("name email");
         if (patientUser?.email) {
             notifyAppointmentCompleted(patientUser.email, {
+                patientName: patientUser.name,
                 doctorName: doctorUser.name,
                 date: appointment.date,
                 hasPrescription: !!prescription,

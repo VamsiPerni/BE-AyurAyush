@@ -110,12 +110,12 @@ const sendNotification = async (toEmail, subject, html) => {
 
 // ─── Email functions ─────────────────────────────────────────────────────────
 
-const notifyAppointmentBooked = (patientEmail, { doctorName, date, timeSlot, urgencyLevel }) => {
+const notifyAppointmentBooked = (patientEmail, { patientName, doctorName, date, timeSlot, urgencyLevel }) => {
     sendNotification(patientEmail, "Appointment Submitted — AyurAyush",
         buildEmail({
             headerClass: G.blue.hdr,
             title: "Appointment Submitted",
-            greeting: "Dear Patient,",
+            greeting: `Dear ${patientName || "Patient"},`,
             message: "Your appointment request has been successfully submitted and is currently awaiting admin review. You will be notified once it is approved.",
             detailHeaderClass: G.blue.dh,
             rows: [
@@ -133,7 +133,7 @@ const notifyAppointmentBooked = (patientEmail, { doctorName, date, timeSlot, urg
     );
 };
 
-const notifyAppointmentApproved = (patientEmail, { doctorName, date, timeSlot, wasEdited = false, editedFields = [], adminNotes = "" }) => {
+const notifyAppointmentApproved = (patientEmail, { patientName, doctorName, date, timeSlot, wasEdited = false, editedFields = [], adminNotes = "" }) => {
     let extraHtml = "";
 
     if (wasEdited && Array.isArray(editedFields) && editedFields.length > 0) {
@@ -157,7 +157,7 @@ const notifyAppointmentApproved = (patientEmail, { doctorName, date, timeSlot, w
         buildEmail({
             headerClass: G.green.hdr,
             title: "Appointment Confirmed",
-            greeting: "Dear Patient,",
+            greeting: `Dear ${patientName || "Patient"},`,
             message: "Your appointment has been reviewed and confirmed by our admin team. Please make sure to arrive on time for your consultation.",
             detailHeaderClass: G.green.dh,
             rows: [
@@ -176,12 +176,12 @@ const notifyAppointmentApproved = (patientEmail, { doctorName, date, timeSlot, w
     );
 };
 
-const notifyAppointmentRejected = (patientEmail, { doctorName, date, reason }) => {
+const notifyAppointmentRejected = (patientEmail, { patientName, doctorName, date, reason }) => {
     sendNotification(patientEmail, "Appointment Not Approved — AyurAyush",
         buildEmail({
             headerClass: G.red.hdr,
             title: "Appointment Not Approved",
-            greeting: "Dear Patient,",
+            greeting: `Dear ${patientName || "Patient"},`,
             message: "We regret to inform you that your appointment request could not be approved at this time. Please review the details below.",
             detailHeaderClass: G.red.dh,
             rows: [
@@ -198,12 +198,12 @@ const notifyAppointmentRejected = (patientEmail, { doctorName, date, reason }) =
     );
 };
 
-const notifyAppointmentCompleted = (patientEmail, { doctorName, date, hasPrescription }) => {
+const notifyAppointmentCompleted = (patientEmail, { patientName, doctorName, date, hasPrescription }) => {
     sendNotification(patientEmail, "Consultation Completed — AyurAyush",
         buildEmail({
             headerClass: G.purple.hdr,
             title: "Consultation Completed",
-            greeting: "Dear Patient,",
+            greeting: `Dear ${patientName || "Patient"},`,
             message: "Your consultation has been successfully completed. We hope you had a positive experience with our healthcare team.",
             detailHeaderClass: G.purple.dh,
             detailTitle: "Consultation Summary",
@@ -223,12 +223,12 @@ const notifyAppointmentCompleted = (patientEmail, { doctorName, date, hasPrescri
     );
 };
 
-const notifyAppointmentCancelled = (patientEmail, { doctorName, date, timeSlot }) => {
+const notifyAppointmentCancelled = (patientEmail, { patientName, doctorName, date, timeSlot }) => {
     sendNotification(patientEmail, "Appointment Cancelled — AyurAyush",
         buildEmail({
             headerClass: G.grey.hdr,
             title: "Appointment Cancelled",
-            greeting: "Dear Patient,",
+            greeting: `Dear ${patientName || "Patient"},`,
             message: "Your appointment has been cancelled as requested. We hope to see you again soon.",
             detailHeaderClass: G.grey.dh,
             detailTitle: "Cancelled Appointment",

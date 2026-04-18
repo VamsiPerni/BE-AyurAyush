@@ -1243,6 +1243,7 @@ const approveAppointment = async (
 
     // Fire-and-forget email notification
     notifyAppointmentApproved(updatedAppointment.patientId.email, {
+        patientName: updatedAppointment.patientId.name,
         doctorName: updatedAppointment.doctorId.name,
         date: updatedAppointment.date,
         timeSlot: updatedAppointment.timeSlot,
@@ -1335,6 +1336,7 @@ const rejectAppointment = async (appointmentId, adminUserId, reason) => {
 
     // Fire-and-forget email notification
     notifyAppointmentRejected(patientUser.email, {
+        patientName: patientUser?.name,
         doctorName: doctorUser?.name || "N/A",
         date: appointment.date,
         reason,

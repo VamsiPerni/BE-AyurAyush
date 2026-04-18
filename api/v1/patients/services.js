@@ -383,6 +383,7 @@ const bookAppointment = async (
 
     // Fire-and-forget email notification
     notifyAppointmentBooked(patientUser.email, {
+        patientName: patientUser.name,
         doctorName: doctorUser.name,
         date: appointment.date,
         timeSlot: appointment.timeSlot,
@@ -669,6 +670,7 @@ const cancelAppointment = async (userId, appointmentId) => {
 
     // Fire-and-forget email notification
     notifyAppointmentCancelled(patientUser.email, {
+        patientName: patientUser.name,
         doctorName: doctorUser?.name || "N/A",
         date: appointment.date,
         timeSlot: appointment.timeSlot,
