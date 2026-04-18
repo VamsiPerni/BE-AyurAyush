@@ -208,6 +208,11 @@ const appointmentSchema = new Schema(
             default: "",
             maxlength: 1000,
         },
+        cancelledBy: {
+            type: String,
+            enum: ["patient", "admin", "not_visited", "overdue"],
+            default: null,
+        },
         adminApprovedAt: {
             type: Date,
             default: null,

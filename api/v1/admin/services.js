@@ -1289,8 +1289,8 @@ const rejectAppointment = async (appointmentId, adminUserId, reason) => {
     });
 
     await appointment.rejectByAdmin(adminUserId, reason);
-
-    // Auto-refund if patient has paid
+    appointment.cancelledBy = "admin";
+    await appointment.save();
     const payment = await PaymentModel.findOne({
         appointmentId,
         status: "paid",
@@ -2020,7 +2020,7 @@ const cancelOverdueAppointments = async (adminUserId) => {
     await AppointmentModel.updateMany(
         { _id: { $in: appointmentIds } },
         {
-            $set: { status: "cancelled", adminNotes: "Cancelled — appointment date passed without admin review" },
+            $set: { status: "cancelled", adminNotes: "Cancelled — appointment date passed without admin review", cancelledBy: "overdue" },
             $push: {
                 queueAuditTrail: {
                     at: new Date(),
@@ -2197,6 +2197,7 @@ const markNoShowAndRefund = async (adminUserId, appointmentId, reason) => {
 
     appointment.status = "cancelled";
     appointment.adminNotes = reason || "Patient did not attend — marked no-show by admin";
+    appointment.cancelledBy = "not_visited";
     await appointment.save();
 
     // Auto-refund if paid

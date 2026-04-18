@@ -451,6 +451,7 @@ const getDoctorAppointments = async (
                 aiSummary: apt.aiSummary,
             },
             isEmergency: apt.urgencyLevel === "emergency",
+            cancelledBy: apt.cancelledBy || null,
             createdAt: apt.createdAt,
         };
     });
@@ -1438,6 +1439,7 @@ const markNoShowByDoctor = async (doctorUserId, appointmentId) => {
     appointment.status = "cancelled";
     appointment.adminNotes =
         "Patient did not attend — marked no-show by doctor";
+    appointment.cancelledBy = "not_visited";
     await appointment.save();
 
     // Auto-refund if paid
@@ -1527,7 +1529,16 @@ const getDoctorNotifications = async (userId) => {
             notifications.push({ type: "info", title: "Consultation Completed", message: `Consultation with ${patientName} on ${dateStr} marked as completed.`, timestamp: apt.consultationEndedAt, appointmentId: apt._id });
         }
         if (apt.status === "cancelled" && apt.updatedAt) {
-            notifications.push({ type: "warning", title: "Appointment Cancelled", message: `Appointment with ${patientName} on ${dateStr} was cancelled.`, timestamp: apt.updatedAt, appointmentId: apt._id });
+            const isNotVisited = apt.cancelledBy === "not_visited";
+            notifications.push({
+                type: "warning",
+                title: isNotVisited ? "Patient Not Visited" : "Appointment Cancelled",
+                message: isNotVisited
+                    ? `${patientName} did not attend the appointment on ${dateStr}.`
+                    : `Appointment with ${patientName} on ${dateStr} was cancelled.`,
+                timestamp: apt.updatedAt,
+                appointmentId: apt._id,
+            });
         }
         if (apt.firstCallEmailSentAt) {
             notifications.push({ type: "urgent", title: "Patient Called", message: `${patientName} was notified for their turn on ${dateStr}. Token: ${apt.tokenNumber || "N/A"}.`, timestamp: apt.firstCallEmailSentAt, appointmentId: apt._id });
