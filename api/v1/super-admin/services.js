@@ -5,6 +5,7 @@ const { AppointmentModel } = require("../../../models/appointmentSchema");
 const { PaymentModel } = require("../../../models/paymentSchema");
 const { DoctorModel } = require("../../../models/doctorSchema");
 const { getISTDayBounds } = require("../../../utils/helpers");
+const { notifySubAdminOnboarded } = require("../../../utils/appointmentNotifications");
 const logger = require("../../../utils/logger");
 
 const generateTemporaryPassword = customAlphabet(
@@ -48,6 +49,13 @@ const createSubAdmin = async (superAdminUserId, payload) => {
     });
 
     logger.info("Sub-admin created", { userId: newUser._id, createdBy: superAdminUserId });
+
+    const loginUrl = `${process.env.FRONTEND_URL_LOCAL || "http://localhost:5173"}/login`;
+    notifySubAdminOnboarded(email, {
+        subAdminName: name,
+        temporaryPassword: tempPassword,
+        loginUrl,
+    });
 
     return {
         userId: newUser._id,

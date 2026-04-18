@@ -341,6 +341,29 @@ const notifyAppointmentOverdue = (patientEmail, { doctorName, date, timeSlot, re
     );
 };
 
+const notifySubAdminOnboarded = (subAdminEmail, { subAdminName, temporaryPassword, loginUrl }) => {
+    sendNotification(subAdminEmail, "Sub-Admin Account Ready — AyurAyush",
+        buildEmail({
+            headerClass: G.blue.hdr,
+            title: "Sub-Admin Account Ready",
+            greeting: `Dear ${subAdminName},`,
+            message: "Your sub-admin account has been created by the hospital administration. You can now log in to the AyurAyush portal to manage your assigned queues and appointments.",
+            detailHeaderClass: G.blue.dh,
+            detailTitle: "Login Credentials",
+            rows: [
+                ["Name", subAdminName],
+                ["Email", subAdminEmail],
+                ["Temp Password", temporaryPassword],
+            ],
+            noteClass: "blue",
+            noteText: "For security, please log in and change your password immediately. Your temporary password will expire after first use.",
+            btnClass: G.blue.btn,
+            btnText: "Login to Portal",
+            btnHref: loginUrl,
+        }),
+    );
+};
+
 module.exports = {
     notifyAppointmentBooked,
     notifyAppointmentApproved,
@@ -351,4 +374,5 @@ module.exports = {
     notifyPatientTurnCalled,
     notifyPatientNotAttended,
     notifyAppointmentOverdue,
+    notifySubAdminOnboarded,
 };

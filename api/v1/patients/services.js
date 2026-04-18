@@ -426,8 +426,10 @@ const getPatientAppointments = async (userId, status, query = {}) => {
         }
     }
 
+    // Default sort: desc for completed/cancelled/all, asc for upcoming
+    const defaultSort = (!status || status === "completed" || status === "cancelled") ? "desc" : "asc";
     const sortOrder =
-        String(query.sort || "asc").toLowerCase() === "desc" ? -1 : 1;
+        String(query.sort || defaultSort).toLowerCase() === "desc" ? -1 : 1;
 
     const [appointments, totalCount] = await Promise.all([
         AppointmentModel.find(filter)
