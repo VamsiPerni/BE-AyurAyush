@@ -68,7 +68,7 @@ const appointmentSchema = new Schema(
         },
         queueStatus: {
             type: String,
-            enum: ["waiting", "called", "in_consultation", "completed"],
+            enum: ["waiting", "called", "in_consultation", "completed", "not_visited"],
             default: "waiting",
         },
         queueCallCount: {

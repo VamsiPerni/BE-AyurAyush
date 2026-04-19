@@ -2089,7 +2089,7 @@ const getPastAppointments = async (query = {}) => {
     const baseFilter = { ...filter };
 
     if (query.attended === "true")  filter.queueStatus = "completed";
-    if (query.attended === "false") filter.queueStatus = { $in: ["waiting", "called"] };
+    if (query.attended === "false") filter.queueStatus = { $in: ["waiting", "called", "not_visited"] };
     if (query.from || query.to) {
         filter.date = { $lt: todayStart };
         baseFilter.date = { $lt: todayStart };
@@ -2110,7 +2110,7 @@ const getPastAppointments = async (query = {}) => {
             .lean(),
         AppointmentModel.countDocuments(filter),
         AppointmentModel.countDocuments({ ...baseFilter, queueStatus: "completed" }),
-        AppointmentModel.countDocuments({ ...baseFilter, queueStatus: { $in: ["waiting", "called"] } }),
+        AppointmentModel.countDocuments({ ...baseFilter, queueStatus: { $in: ["waiting", "called", "not_visited"] } }),
     ]);
 
     const patientIds = [...new Set(appointments.map((a) => (a.patientId || "").toString()).filter(Boolean))];

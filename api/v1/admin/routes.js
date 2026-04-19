@@ -163,7 +163,7 @@ adminsRouter.get(
     "/appointments/emergency",
     validateLoggedInUserMiddleware,
     validateAnyAdminMiddleware,
-    checkPermission("viewQueues"),
+    checkPermission("viewEmergencyQueue"),
     getEmergencyAppointmentsController,
 );
 
@@ -224,7 +224,7 @@ adminsRouter.get(
     "/appointments/overdue",
     validateLoggedInUserMiddleware,
     validateAnyAdminMiddleware,
-    checkPermission("approveAppointments"),
+    checkPermission("viewOverdue"),
     getOverdueAppointmentsController,
 );
 
@@ -232,7 +232,7 @@ adminsRouter.post(
     "/appointments/overdue/cancel-all",
     validateLoggedInUserMiddleware,
     validateAnyAdminMiddleware,
-    checkPermission("approveAppointments"),
+    checkPermission("cancelOverdue"),
     cancelOverdueAppointmentsController,
 );
 
@@ -240,7 +240,7 @@ adminsRouter.get(
     "/appointments/past",
     validateLoggedInUserMiddleware,
     validateAnyAdminMiddleware,
-    checkPermission("viewQueues"),
+    checkPermission("viewPastAppointments"),
     getPastAppointmentsController,
 );
 
@@ -248,7 +248,7 @@ adminsRouter.post(
     "/appointments/:appointmentId/no-show",
     validateLoggedInUserMiddleware,
     validateAnyAdminMiddleware,
-    checkPermission("approveAppointments"),
+    checkPermission("markNoShow"),
     markNoShowController,
 );
 
@@ -257,7 +257,7 @@ adminsRouter.get(
     "/appointments/:appointmentId/audit-trail",
     validateLoggedInUserMiddleware,
     validateAnyAdminMiddleware,
-    checkPermission("viewQueues"),
+    checkPermission("viewAuditTrail"),
     getAppointmentAuditTrailController,
 );
 
